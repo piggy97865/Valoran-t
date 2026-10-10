@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flick Range</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: full-bleed 3D range behind everything; one left-anchored panel floats over it for drills, pause and results */
+:root{
+  --bg:#0b1417;
+  --panel:rgba(12,22,26,.88);
+  --field:#0f1c20;
+  --line:#2a3f45;
+  --fg:#e6f0ed;
+  --muted:#93aaa4;
+  --accent:#3fd8c9;
+  --best:#f2b544;
+  --bad:#ff6f61;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);overflow:hidden;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%;height:100%}
+
+.overlay{position:fixed;inset:0;display:flex;align-items:center;padding-block:calc(env(safe-area-inset-top,0px) + 16px) calc(env(safe-area-inset-bottom,0px) + 16px);padding-inline:max(16px,5vw);background:linear-gradient(90deg,rgba(8,15,18,.8) 0%,rgba(8,15,18,.4) 55%,rgba(8,15,18,0) 100%)}
+.panel{width:min(560px,100%);max-height:100%;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:28px;display:flex;flex-direction:column;gap:20px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+h1,h2{font-family:var(--display);font-weight:800;letter-spacing:.02em;text-transform:uppercase;line-height:.9;margin:0;text-wrap:balance}
+h1{font-size:clamp(52px,9vw,88px)}
+h2{font-size:clamp(38px,6vw,56px)}
+.lede{margin:0;color:var(--muted);max-width:52ch}
+kbd{font:12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 5px;color:var(--fg)}
+.notice{margin:0;padding:10px 12px;border-left:3px solid var(--bad);background:rgba(255,111,97,.08);font-size:14px}
+
+.drills{display:flex;flex-direction:column;gap:8px}
+.drill{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;text-align:left;width:100%;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:4px;color:inherit;font:inherit;cursor:pointer;transition:border-color .15s,background .15s}
+.drill:hover,.drill:focus-visible{border-color:var(--accent);background:rgba(63,216,201,.08);outline:none}
+.drill .name{grid-column:1;grid-row:1;font:700 26px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}
+.drill .blurb{grid-column:1;grid-row:2;color:var(--muted);font-size:14px;line-height:1.4}
+.drill .meta{grid-column:2;grid-row:1 / 3;text-align:right;font:12px/1.6 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.drill .meta b{display:block;color:var(--best);font-weight:600;font-size:14px}
+.drill .meta b.none{color:var(--muted);font-weight:400;font-size:12px}
+
+details{border-top:1px solid var(--line);padding-top:16px}
+summary{cursor:pointer;font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+ ";color:var(--accent)}
+details[open] summary::before{content:"\2013  "}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;margin-top:16px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label{font-size:13px;color:var(--muted)}
+.field input[type=number],.field select{background:var(--field);border:1px solid var(--line);border-radius:4px;color:var(--fg);font:14px var(--mono);padding:8px 10px;width:100%}
+.field input[type=range]{width:100%;accent-color:var(--accent)}
+.field input[type=color]{width:100%;height:38px;padding:2px;background:var(--field);border:1px solid var(--line);border-radius:4px;cursor:pointer}
+.field.check{flex-direction:row;align-items:center;gap:8px}
+.field.check input{accent-color:var(--accent);width:18px;height:18px}
+.field.check label{color:var(--fg);font-size:14px}
+.readout{grid-column:1 / -1;font:13px var(--mono);background:rgba(63,216,201,.07);border:1px solid rgba(63,216,201,.25);border-radius:4px;padding:10px 12px;font-variant-numeric:tabular-nums}
+.keys{font:12px/1.8 var(--mono);color:var(--muted);margin:0}
+
+#hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);left:50%;transform:translateX(-50%);display:flex;gap:32px;pointer-events:none;font-family:var(--mono);font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.stat{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:72px}
+.stat span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.stat b{font-size:24px;font-weight:600}
+#hTime{color:var(--accent)}
+#xhair{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;line-height:0}
+#count{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;font:800 clamp(96px,18vw,180px)/1 var(--display);text-shadow:0 4px 30px rgba(0,0,0,.5)}
+
+.bigscore{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.bigscore b{font:800 clamp(60px,10vw,92px)/1 var(--display);letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.badge{font:600 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--bg);background:var(--best);padding:4px 8px;border-radius:3px}
+.sub{margin:-12px 0 0;font:13px var(--mono);color:var(--muted)}
+.results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.results div{background:var(--field);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.results span{font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.results b{font:600 22px var(--mono);font-variant-numeric:tabular-nums}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.btn{font:700 18px/1 var(--display);text-transform:uppercase;letter-spacing:.06em;padding:12px 20px;border-radius:4px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#06211e}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+@media (max-width:480px){
+  .panel{padding:20px}
+  .settings{grid-template-columns:1fr}
+  .results{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #hud{gap:16px}
+}
+@media (prefers-reduced-motion:reduce){.drill{transition:none}}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="hud" hidden>
+  <div class="stat"><span>Time</span><b id="hTime">60.0</b></div>
+  <div class="stat"><span>Score</span><b id="hScore">0</b></div>
+  <div class="stat"><span id="hAccLabel">Accuracy</span><b id="hAcc">&ndash;</b></div>
+</div>
+<div id="xhair" hidden></div>
+<div id="count" hidden></div>
+
+<div class="overlay" id="menu">
+  <section class="panel" aria-labelledby="menuTitle">
+    <div>
+      <p class="eyebrow">Aim trainer</p>
+      <h1 id="menuTitle">Flick Range</h1>
+    </div>
+    <p class="lede">Pick a drill to start. The game locks your mouse so you can aim; press <kbd>Esc</kbd> any time to pause.</p>
+    <p class="notice" id="menuMsg" hidden></p>
+    <div class="drills" id="drills"></div>
+    <details id="setBox">
+      <summary>Settings</summary>
+      <div class="settings">
+        <div class="field">
+          <label for="sens">Sensitivity (Valorant scale)</label>
+          <input type="number" id="sens" min="0.01" max="20" step="0.01">
+        </div>
+        <div class="field">
+          <label for="dpi">Mouse DPI</label>
+          <input type="number" id="dpi" min="50" max="50000" step="50">
+        </div>
+        <div class="readout" id="readout"></div>
+        <div class="field">
+          <label for="fov">Field of view <output id="fovOut" for="fov"></output></label>
+          <input type="range" id="fov" min="70" max="120" step="1">
+        </div>
+        <div class="field">
+          <label for="xstyle">Crosshair</label>
+          <select id="xstyle">
+            <option value="cross">Cross</option>
+            <option value="dot">Dot</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="xcolor">Crosshair color</label>
+          <input type="color" id="xcolor">
+        </div>
+        <div class="field">
+          <label for="tcolor">Target color</label>
+          <input type="color" id="tcolor">
+        </div>
+        <div class="field check">
+          <input type="checkbox" id="sound">
+          <label for="sound">Hit sounds</label>
+        </div>
+      </div>
+    </details>
+    <p class="keys"><kbd>Mouse</kbd> aim &middot; <kbd>Left click</kbd> shoot &middot; <kbd>Esc</kbd> pause</p>
+  </section>
+</div>
+
+<div class="overlay" id="pause" hidden>
+  <section class="panel" aria-labelledby="pauseTitle">
+    <div>
+      <p class="eyebrow" id="pMode">Drill</p>
+      <h2 id="pauseTitle">Paused</h2>
+    </div>
+    <p class="lede">The timer is stopped. Click Resume to lock the mouse again.</p>
+    <p class="notice" id="pauseMsg" hidden></p>
+    <div class="row">
+      <button class="btn primary" type="button" id="bResume">Resume</button>
+      <button class="btn" type="button" id="bRestart">Restart</button>
+      <button class="btn" type="button" id="bQuit">Quit to drills</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="results" hidden>
+  <section class="panel" aria-labelledby="resTitle">
+    <div>
+      <p class="eyebrow" id="rMode">Drill</p>
+      <h2 id="resTitle">Run complete</h2>
+    </div>
+    <div class="bigscore"><b id="rScore">0</b><span class="badge" id="rBest">New best</span></div>
+    <p class="sub" id="rPrev"></p>
+    <div class="results" id="rStats"></div>
+    <div class="row">
+      <button class="btn primary" type="button" id="bAgain">Play again</button>
+      <button class="btn" type="button" id="bMenu">All drills</button>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const DEG = Math.PI / 180;
+  const DIST = 14; // metres from the player to the target wall arc
+
+  const MODES = {
+    gridshot:   { name: 'Gridshot',     time: 60, blurb: 'Three targets on a grid. Clear them as fast as you can.' },
+    spidershot: { name: 'Spidershot',   time: 60, blurb: 'One target jumps between the center and the edges. Trains flicks and resetting your aim.' },
+    microshot:  { name: 'Microshot',    time: 60, blurb: 'Tiny targets in random spots. Trains precision.' },
+    tracking:   { name: 'Strafe Track', time: 30, blurb: 'Keep your crosshair on a target that strafes left and right like a player.' },
+  };
+  const ORDER = ['gridshot', 'spidershot', 'microshot', 'tracking'];
+  const DEFAULTS = { sens: 0.4, dpi: 800, fov: 103, xstyle: 'cross', xcolor: '#3fd8c9', tcolor: '#ff8a3d', sound: true };
+
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+
+  function load(key, fallback) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key));
+      return v && typeof v === 'object' ? v : fallback;
+    } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage blocked */ }
+  }
+
+  const settings = Object.assign({}, DEFAULTS, load('flickrange.settings', {}));
+  if (!isHex(settings.xcolor)) settings.xcolor = DEFAULTS.xcolor;
+  if (!isHex(settings.tcolor)) settings.tcolor = DEFAULTS.tcolor;
+  if (!['cross', 'dot'].includes(settings.xstyle)) settings.xstyle = DEFAULTS.xstyle;
+  const best = load('flickrange.best', {});
+
+  if (typeof THREE === 'undefined') {
+    msg('menuMsg', 'The 3D engine failed to load. Check your connection and reload the page.');
+    return;
+  }
+
+  // ---------- Scene ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  $('stage').appendChild(renderer.domElement);
+  const canvas = renderer.domElement;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a262a);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
+  camera.rotation.order = 'YXZ';
+
+  scene.add(new THREE.HemisphereLight(0xe4f2ee, 0x5f7073, 0.95));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+  sun.position.set(6, 12, 8);
+  scene.add(sun);
+
+  const gridCanvas = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#9fb1b3';
+    g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#8a9c9f';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(128, 0); g.lineTo(128, 256);
+    g.moveTo(0, 128); g.lineTo(256, 128);
+    g.stroke();
+    g.strokeStyle = '#738588';
+    g.lineWidth = 3;
+    g.strokeRect(1.5, 1.5, 253, 253);
+    return c;
+  })();
+
+  function wall(w, h, pos, rot, tint) {
+    const tex = new THREE.CanvasTexture(gridCanvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(w / 4, h / 4);
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex, color: tint }));
+    mesh.position.set(pos[0], pos[1], pos[2]);
+    mesh.rotation.set(rot[0], rot[1], rot[2]);
+    scene.add(mesh);
+  }
+  // Room: 60 x 24 x 60, eye height 6 m above the floor.
+  wall(60, 60, [0, -6, 0], [-Math.PI / 2, 0, 0], 0x6f8184);
+  wall(60, 60, [0, 18, 0], [Math.PI / 2, 0, 0], 0x5d6e71);
+  wall(60, 24, [0, 6, -30], [0, 0, 0], 0x8a9c9f);
+  wall(60, 24, [0, 6, 30], [0, Math.PI, 0], 0x7a8b8e);
+  wall(60, 24, [-30, 6, 0], [0, Math.PI / 2, 0], 0x7f9093);
+  wall(60, 24, [30, 6, 0], [0, -Math.PI / 2, 0], 0x7f9093);
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    applyFov();
+  }
+  function applyFov() {
+    // Settings use horizontal FOV like Valorant; three.js wants vertical.
+    const hf = settings.fov * DEG;
+    camera.fov = 2 * Math.atan(Math.tan(hf / 2) / camera.aspect) / DEG;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- Targets ----------
+  const sphereGeo = new THREE.SphereGeometry(1, 32, 20);
+  const fxGeo = new THREE.SphereGeometry(1, 14, 10);
+  const fx = [];
+
+  function dirPos(az, el, d) {
+    const a = az * DEG, e = el * DEG;
+    return new THREE.Vector3(d * Math.cos(e) * Math.sin(a), d * Math.sin(e), -d * Math.cos(e) * Math.cos(a));
+  }
+  function makeTarget(r) {
+    const mat = new THREE.MeshStandardMaterial({ color: settings.tcolor, emissive: settings.tcolor, emissiveIntensity: 0.28, roughness: 0.45, metalness: 0 });
+    const m = new THREE.Mesh(sphereGeo, mat);
+    m.scale.setScalar(r);
+    scene.add(m);
+    return m;
+  }
+  function removeTarget(m) { scene.remove(m); m.material.dispose(); }
+
+  function burst(pos, r) {
+    const mat = new THREE.MeshBasicMaterial({ color: settings.tcolor, transparent: true, opacity: 0.55, wireframe: true });
+    const m = new THREE.Mesh(fxGeo, mat);
+    m.position.copy(pos);
+    m.scale.setScalar(r);
+    scene.add(m);
+    fx.push({ m, r, t: 0 });
+  }
+  function updateFx(dt) {
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i];
+      f.t += dt;
+      const k = f.t / 0.22;
+      if (k >= 1) { scene.remove(f.m); f.m.material.dispose(); fx.splice(i, 1); continue; }
+      f.m.scale.setScalar(f.r * (1 + k * 0.9));
+      f.m.material.opacity = 0.55 * (1 - k);
+    }
+  }
+
+  // Gridshot cells: 4 x 4 grid, 7 degrees apart.
+  const GRID = [];
+  for (const el of [-7.5, -2.5, 2.5, 7.5]) for (const az of [-10.5, -3.5, 3.5, 10.5]) GRID.push([az, el]);
+  const cellPos = (i) => dirPos(GRID[i][0], GRID[i][1], DIST);
+
+  let idle = [];
+  function showIdle() {
+    hideIdle();
+    for (const i of [5, 10, 3]) {
+      const m = makeTarget(0.7);
+      m.position.copy(cellPos(i));
+      idle.push(m);
+    }
+  }
+  function hideIdle() { idle.forEach(removeTarget); idle = []; }
+  function recolorIdle() { idle.forEach((m) => { m.material.color.set(settings.tcolor); m.material.emissive.set(settings.tcolor); }); }
+
+  // ---------- Audio ----------
+  let actx = null;
+  function ensureAudio() {
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+    } catch (e) { actx = null; }
+  }
+  function sfx(hit) {
+    if (!settings.sound || !actx) return;
+    const t0 = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    const f = hit ? 920 : 170, dur = hit ? 0.08 : 0.06;
+    o.type = hit ? 'triangle' : 'square';
+    o.frequency.setValueAtTime(f, t0);
+    o.frequency.exponentialRampToValueAtTime(f * 0.55, t0 + dur);
+    g.gain.setValueAtTime(hit ? 0.16 : 0.04, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(actx.destination);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  }
+
+  // ---------- Game state ----------
+  let state = 'menu'; // menu | countdown | running | paused | results
+  let prevState = null;
+  let run = null;
+  let lastKey = 'gridshot';
+  let yaw = 0, pitch = 0;
+
+  function show(name) { ['menu', 'pause', 'results'].forEach((n) => { $(n).hidden = n !== name; }); }
+  function msg(id, text) { const el = $(id); el.textContent = text || ''; el.hidden = !text; }
+
+  function addTarget(r, pos, extra) {
+    const m = makeTarget(r);
+    m.position.copy(pos);
+    const t = Object.assign({ m, r, born: run.clock }, extra);
+    run.targets.push(t);
+    return t;
+  }
+  function spawnMicro() {
+    let az, el, tries = 0;
+    do { az = rand(-18, 18); el = rand(-9, 9); tries++; }
+    while (run.lastPos && Math.hypot(az - run.lastPos[0], el - run.lastPos[1]) < 5 && tries < 20);
+    run.lastPos = [az, el];
+    addTarget(0.28, dirPos(az, el, DIST), {});
+  }
+  function spawnInitial() {
+    const k = run.key;
+    if (k === 'gridshot') {
+      const cells = [...GRID.keys()].sort(() => Math.random() - 0.5).slice(0, 3);
+      cells.forEach((c) => addTarget(0.7, cellPos(c), { cell: c }));
+    } else if (k === 'spidershot') {
+      addTarget(0.9, dirPos(0, 0, DIST), {});
+      run.spiderCenter = true;
+    } else if (k === 'microshot') {
+      spawnMicro();
+    } else {
+      run.trk = { az: 0, el: 0, v: 22, turn: 0.8 };
+      addTarget(0.85, dirPos(0, 0, DIST), {});
+    }
+  }
+  function respawn(dead) {
+    const k = run.key;
+    if (k === 'gridshot') {
+      const used = new Set(run.targets.map((t) => t.cell));
+      const free = [...GRID.keys()].filter((i) => !used.has(i) && i !== dead.cell);
+      const c = free[Math.floor(Math.random() * free.length)];
+      addTarget(0.7, cellPos(c), { cell: c });
+    } else if (k === 'spidershot') {
+      if (run.spiderCenter) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        addTarget(0.9, dirPos(side * rand(8, 32), rand(-14, 14), DIST), {});
+      } else {
+        addTarget(0.9, dirPos(0, 0, DIST), {});
+      }
+      run.spiderCenter = !run.spiderCenter;
+    } else if (k === 'microshot') {
+      spawnMicro();
+    }
+  }
+  function clearRun() {
+    if (!run) return;
+    run.targets.forEach((t) => removeTarget(t.m));
+    run.targets = [];
+  }
+
+  function startRun(key) {
+    ensureAudio();
+    clearRun();
+    hideIdle();
+    msg('menuMsg', '');
+    msg('pauseMsg', '');
+    lastKey = key;
+    run = {
+      key, M: MODES[key], clock: 0, cd: 3,
+      hits: 0, misses: 0, score: 0, react: [], lastKill: 0, targets: [],
+      onTime: 0, streak: 0, bestStreak: 0, trk: null, spiderCenter: true, lastPos: null,
+    };
+    yaw = 0; pitch = 0;
+    camera.rotation.set(0, 0, 0);
+    spawnInitial();
+    state = 'countdown';
+    show('none');
+    $('hud').hidden = false;
+    $('xhair').hidden = false;
+    $('count').hidden = false;
+    $('count').textContent = '3';
+    setHud();
+    lock();
+  }
+
+  function quitToMenu() {
+    clearRun();
+    run = null;
+    state = 'menu';
+    if (document.pointerLockElement) document.exitPointerLock();
+    $('hud').hidden = $('xhair').hidden = $('count').hidden = true;
+    showIdle();
+    renderDrills();
+    show('menu');
+  }
+
+  function aimed() {
+    camera.updateMatrixWorld();
+    ray.setFromCamera(CENTER, camera);
+    const hits = ray.intersectObjects(run.targets.map((t) => t.m), false);
+    return hits.length ? run.targets.find((t) => t.m === hits[0].object) : null;
+  }
+  const ray = new THREE.Raycaster();
+  const CENTER = new THREE.Vector2(0, 0);
+
+  function shoot() {
+    const t = aimed();
+    if (t) {
+      const rt = run.key === 'gridshot' ? run.clock - run.lastKill : run.clock - t.born;
+      run.lastKill = run.clock;
+      run.hits++;
+      run.react.push(rt);
+      run.score += 100 + Math.round(Math.max(0, 1 - rt) * 50);
+      burst(t.m.position, t.r);
+      removeTarget(t.m);
+      run.targets.splice(run.targets.indexOf(t), 1);
+      respawn(t);
+      sfx(true);
+    } else {
+      run.misses++;
+      run.score = Math.max(0, run.score - 25);
+      sfx(false);
+    }
+    setHud();
+  }
+
+  function updateTracking(dt) {
+    const s = run.trk, t = run.targets[0];
+    s.turn -= dt;
+    if (s.turn <= 0) {
+      s.v = (Math.random() < 0.5 ? -1 : 1) * rand(14, 40);
+      s.turn = rand(0.35, 1.2);
+    }
+    s.az += s.v * dt;
+    if (Math.abs(s.az) > 28) { s.az = Math.sign(s.az) * 28; s.v = -s.v; }
+    s.el = Math.sin(run.clock * 0.9) * 3 + Math.sin(run.clock * 2.3);
+    t.m.position.copy(dirPos(s.az, s.el, DIST));
+    const on = !!aimed();
+    if (on) {
+      run.onTime += dt;
+      run.streak += dt;
+      run.bestStreak = Math.max(run.bestStreak, run.streak);
+    } else {
+      run.streak = 0;
+    }
+    t.m.material.color.set(on ? '#ffffff' : settings.tcolor);
+    t.m.material.emissive.set(on ? settings.xcolor : settings.tcolor);
+    run.score = Math.round(run.onTime * 100);
+  }
+
+  function setHud() {
+    if (!run) return;
+    $('hTime').textContent = Math.max(0, run.M.time - run.clock).toFixed(1);
+    $('hScore').textContent = run.score.toLocaleString();
+    if (run.key === 'tracking') {
+      $('hAccLabel').textContent = 'On target';
+      $('hAcc').textContent = run.clock > 0 ? Math.round(run.onTime / run.clock * 100) + '%' : '–';
+    } else {
+      $('hAccLabel').textContent = 'Accuracy';
+      const n = run.hits + run.misses;
+      $('hAcc').textContent = n ? Math.round(run.hits / n * 100) + '%' : '–';
+    }
+  }
+
+  function finish() {
+    const r = run;
+    state = 'results';
+    if (document.pointerLockElement) document.exitPointerLock();
+    $('hud').hidden = $('xhair').hidden = $('count').hidden = true;
+
+    const prev = best[r.key] || 0;
+    const isBest = r.score > prev;
+    if (isBest) { best[r.key] = r.score; save('flickrange.best', best); }
+
+    $('rMode').textContent = r.M.name;
+    $('rScore').textContent = r.score.toLocaleString();
+    $('rBest').hidden = !isBest;
+    $('rPrev').textContent = isBest
+      ? (prev ? 'Previous best ' + prev.toLocaleString() : 'First score on this drill')
+      : 'Your best is ' + prev.toLocaleString();
+
+    let stats;
+    if (r.key === 'tracking') {
+      stats = [
+        ['On target', Math.round(r.onTime / r.M.time * 100) + '%'],
+        ['Time on target', r.onTime.toFixed(1) + 's'],
+        ['Longest lock', r.bestStreak.toFixed(1) + 's'],
+      ];
+    } else {
+      const n = r.hits + r.misses;
+      const avg = r.react.length ? r.react.reduce((a, b) => a + b, 0) / r.react.length : 0;
+      stats = [
+        ['Accuracy', n ? Math.round(r.hits / n * 100) + '%' : '–'],
+        ['Hits', String(r.hits)],
+        ['Misses', String(r.misses)],
+        ['Avg kill time', avg ? Math.round(avg * 1000) + ' ms' : '–'],
+        ['Kills / sec', (r.hits / r.M.time).toFixed(2)],
+        ['Drill length', r.M.time + 's'],
+      ];
+    }
+    $('rStats').innerHTML = stats.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+
+    clearRun();
+    showIdle();
+    renderDrills();
+    show('results');
+  }
+
+  // ---------- Pointer lock ----------
+  let lockUsesPromise = false;
+  function lock() {
+    let p = null;
+    try { p = canvas.requestPointerLock({ unadjustedMovement: true }); } catch (e) { p = null; }
+    if (p && typeof p.then === 'function') {
+      lockUsesPromise = true;
+      p.catch((err) => {
+        if (err && err.name === 'NotSupportedError') {
+          // Raw mouse input isn't available here; fall back to normal pointer lock.
+          let p2 = null;
+          try { p2 = canvas.requestPointerLock(); } catch (e) { lockFailed(); return; }
+          if (p2 && typeof p2.catch === 'function') p2.catch(lockFailed);
+        } else {
+          lockFailed();
+        }
+      });
+    } else {
+      lockUsesPromise = false;
+    }
+  }
+  function lockFailed() {
+    if (document.pointerLockElement === canvas) return;
+    if (state === 'countdown') {
+      quitToMenu();
+      msg('menuMsg', "The browser didn't let the game take over your mouse. Click a drill again. Flick Range needs a mouse and a desktop browser.");
+    } else if (state === 'paused') {
+      msg('pauseMsg', "Couldn't lock the mouse yet. Wait a second, then click Resume again.");
+    }
+  }
+  document.addEventListener('pointerlockerror', () => { if (!lockUsesPromise) lockFailed(); });
+  document.addEventListener('pointerlockchange', () => {
+    const locked = document.pointerLockElement === canvas;
+    if (!locked && (state === 'running' || state === 'countdown')) {
+      prevState = state;
+      state = 'paused';
+      $('pMode').textContent = run.M.name;
+      msg('pauseMsg', '');
+      $('xhair').hidden = true;
+      $('count').hidden = true;
+      show('pause');
+    } else if (locked && state === 'paused') {
+      state = prevState;
+      show('none');
+      $('xhair').hidden = false;
+      $('count').hidden = state !== 'countdown';
+    }
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (document.pointerLockElement !== canvas) return;
+    if (state !== 'running' && state !== 'countdown') return;
+    const k = settings.sens * 0.07 * DEG; // Valorant: 0.07 degrees per mouse count at sens 1
+    yaw -= e.movementX * k;
+    pitch -= e.movementY * k;
+    pitch = Math.max(-89 * DEG, Math.min(89 * DEG, pitch));
+    camera.rotation.set(pitch, yaw, 0);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || document.pointerLockElement !== canvas) return;
+    if (state !== 'running' || run.key === 'tracking') return;
+    shoot();
+  });
+
+  $('bResume').addEventListener('click', lock);
+  $('bRestart').addEventListener('click', () => startRun(run.key));
+  $('bQuit').addEventListener('click', quitToMenu);
+  $('bAgain').addEventListener('click', () => startRun(lastKey));
+  $('bMenu').addEventListener('click', quitToMenu);
+
+  // ---------- Menu + settings ----------
+  function renderDrills() {
+    $('drills').innerHTML = ORDER.map((k) => {
+      const M = MODES[k], b = best[k];
+      return `<button class="drill" type="button" data-mode="${k}">` +
+        `<span class="name">${M.name}</span>` +
+        `<span class="meta">${M.time}s<b class="${b ? '' : 'none'}">${b ? 'Best ' + b.toLocaleString() : 'No score yet'}</b></span>` +
+        `<span class="blurb">${M.blurb}</span></button>`;
+    }).join('');
+  }
+  $('drills').addEventListener('click', (e) => {
+    const b = e.target.closest('.drill');
+    if (b) startRun(b.dataset.mode);
+  });
+
+  function drawCrosshair() {
+    const c = settings.xcolor;
+    let svg;
+    if (settings.xstyle === 'dot') {
+      svg = `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="2.5" fill="${c}" stroke="#000" stroke-opacity=".55" stroke-width="1"/></svg>`;
+    } else {
+      const L = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+      const lines = L(12, 3, 12, 8) + L(12, 16, 12, 21) + L(3, 12, 8, 12) + L(16, 12, 21, 12);
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#000" stroke-opacity=".5" stroke-width="4">${lines}</g><g stroke="${c}" stroke-width="2">${lines}</g></svg>`;
+    }
+    $('xhair').innerHTML = svg;
+  }
+
+  function readout() {
+    const counts = 360 / (0.07 * settings.sens);
+    const cm = counts / settings.dpi * 2.54;
+    $('readout').textContent = `eDPI ${Math.round(settings.sens * settings.dpi)} · ${cm.toFixed(1)} cm per 360° turn`;
+  }
+
+  function bindSettings() {
+    const sens = $('sens'), dpi = $('dpi'), fov = $('fov'), xs = $('xstyle'), xc = $('xcolor'), tc = $('tcolor'), snd = $('sound');
+    sens.value = settings.sens;
+    dpi.value = settings.dpi;
+    fov.value = settings.fov;
+    $('fovOut').textContent = settings.fov + '°';
+    xs.value = settings.xstyle;
+    xc.value = settings.xcolor;
+    tc.value = settings.tcolor;
+    snd.checked = settings.sound;
+    const commit = () => {
+      const s = parseFloat(sens.value);
+      if (s > 0 && s <= 20) settings.sens = s;
+      const d = parseInt(dpi.value, 10);
+      if (d >= 50 && d <= 50000) settings.dpi = d;
+      settings.fov = +fov.value;
+      $('fovOut').textContent = settings.fov + '°';
+      settings.xstyle = xs.value;
+      if (isHex(xc.value)) settings.xcolor = xc.value;
+      if (isHex(tc.value)) settings.tcolor = tc.value;
+      settings.sound = snd.checked;
+      save('flickrange.settings', settings);
+      applyFov();
+      drawCrosshair();
+      recolorIdle();
+      readout();
+    };
+    [sens, dpi, fov, xs, xc, tc, snd].forEach((el) => {
+      el.addEventListener('input', commit);
+      el.addEventListener('change', commit);
+    });
+    readout();
+  }
+
+  // ---------- Loop ----------
+  let tIdle = 0;
+  function update(dt) {
+    tIdle += dt;
+    if (state === 'menu' || state === 'results') {
+      camera.rotation.set(0.03 + Math.sin(tIdle * 0.23) * 0.015, 0.2 + Math.sin(tIdle * 0.11) * 0.06, 0);
+    } else if (state === 'countdown') {
+      run.cd -= dt;
+      if (run.cd <= 0) {
+        state = 'running';
+        $('count').hidden = true;
+      } else {
+        $('count').textContent = String(Math.ceil(run.cd));
+      }
+    } else if (state === 'running') {
+      run.clock += dt;
+      if (run.key === 'tracking') updateTracking(dt);
+      if (run.clock >= run.M.time) {
+        run.clock = run.M.time;
+        setHud();
+        finish();
+      } else {
+        setHud();
+      }
+    }
+    updateFx(dt);
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    update(dt);
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  bindSettings();
+  drawCrosshair();
+  renderDrills();
+  showIdle();
+  if (window.matchMedia && !window.matchMedia('(any-pointer: fine)').matches) {
+    msg('menuMsg', 'Flick Range needs a mouse. Open this page on a computer to play.');
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

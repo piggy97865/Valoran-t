@@ -67,6 +67,13 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 .field.check label{color:var(--fg);font-size:14px}
 .readout{grid-column:1 / -1;font:13px var(--mono);background:rgba(63,216,201,.07);border:1px solid rgba(63,216,201,.25);border-radius:4px;padding:10px 12px;font-variant-numeric:tabular-nums}
 .keys{font:12px/1.8 var(--mono);color:var(--muted);margin:0}
+.sensbox{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;background:rgba(255,255,255,.03)}
+.sensrow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sensrow label{font:700 22px/1 var(--display);text-transform:uppercase;letter-spacing:.04em}
+.sensrow input{width:100px;background:var(--field);border:1px solid var(--line);border-radius:4px;color:var(--fg);font:600 16px var(--mono);padding:6px 8px;text-align:right}
+.sensbox input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+.sensbox .readout{margin:0}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 28px);transform:translateX(-50%);font:600 14px var(--mono);font-variant-numeric:tabular-nums;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 14px;pointer-events:none}
 
 #hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);left:50%;transform:translateX(-50%);display:flex;gap:32px;pointer-events:none;font-family:var(--mono);font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .stat{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:72px}
@@ -109,6 +116,7 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 </div>
 <div id="xhair" hidden></div>
 <div id="count" hidden></div>
+<div id="toast" role="status" hidden></div>
 
 <div class="overlay" id="menu">
   <section class="panel" aria-labelledby="menuTitle">
@@ -118,19 +126,22 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
     </div>
     <p class="lede">Pick a drill to start. The game locks your mouse so you can aim; press <kbd>Esc</kbd> any time to pause.</p>
     <p class="notice" id="menuMsg" hidden></p>
+    <div class="sensbox">
+      <div class="sensrow">
+        <label for="sensRange">Sensitivity</label>
+        <input type="number" id="sens" min="0.01" max="20" step="0.01" aria-label="Sensitivity value">
+      </div>
+      <input type="range" id="sensRange" min="0.05" max="3" step="0.01">
+      <p class="readout" id="readout"></p>
+    </div>
     <div class="drills" id="drills"></div>
     <details id="setBox">
       <summary>Settings</summary>
       <div class="settings">
         <div class="field">
-          <label for="sens">Sensitivity (Valorant scale)</label>
-          <input type="number" id="sens" min="0.01" max="20" step="0.01">
-        </div>
-        <div class="field">
           <label for="dpi">Mouse DPI</label>
           <input type="number" id="dpi" min="50" max="50000" step="50">
         </div>
-        <div class="readout" id="readout"></div>
         <div class="field">
           <label for="fov">Field of view <output id="fovOut" for="fov"></output></label>
           <input type="range" id="fov" min="70" max="120" step="1">
@@ -156,7 +167,7 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
         </div>
       </div>
     </details>
-    <p class="keys"><kbd>Mouse</kbd> aim &middot; <kbd>Left click</kbd> shoot &middot; <kbd>Esc</kbd> pause</p>
+    <p class="keys"><kbd>Mouse</kbd> aim &middot; <kbd>Left click</kbd> shoot &middot; <kbd>[</kbd> <kbd>]</kbd> sensitivity &middot; <kbd>Esc</kbd> pause</p>
   </section>
 </div>
 
@@ -166,8 +177,16 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
       <p class="eyebrow" id="pMode">Drill</p>
       <h2 id="pauseTitle">Paused</h2>
     </div>
-    <p class="lede">The timer is stopped. Click Resume to lock the mouse again.</p>
+    <p class="lede">The timer is stopped. Change your sensitivity here, then click Resume to lock the mouse again.</p>
     <p class="notice" id="pauseMsg" hidden></p>
+    <div class="sensbox">
+      <div class="sensrow">
+        <label for="psensRange">Sensitivity</label>
+        <input type="number" id="psens" min="0.01" max="20" step="0.01" aria-label="Sensitivity value">
+      </div>
+      <input type="range" id="psensRange" min="0.05" max="3" step="0.01">
+      <p class="readout" id="preadout"></p>
+    </div>
     <div class="row">
       <button class="btn primary" type="button" id="bResume">Resume</button>
       <button class="btn" type="button" id="bRestart">Restart</button>
@@ -688,12 +707,45 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
   function readout() {
     const counts = 360 / (0.07 * settings.sens);
     const cm = counts / settings.dpi * 2.54;
-    $('readout').textContent = `eDPI ${Math.round(settings.sens * settings.dpi)} · ${cm.toFixed(1)} cm per 360° turn`;
+    const text = `Valorant scale \u00b7 eDPI ${Math.round(settings.sens * settings.dpi)} \u00b7 ${cm.toFixed(1)} cm per 360\u00b0 turn`;
+    $('readout').textContent = text;
+    $('preadout').textContent = text;
   }
 
+  // Sensitivity has a box on the menu and one on the pause screen; keep them in sync.
+  const SENS_INPUTS = ['sens', 'sensRange', 'psens', 'psensRange'];
+  function setSens(v, from) {
+    v = Math.round(v * 1000) / 1000;
+    if (!(v > 0 && v <= 20)) return;
+    settings.sens = v;
+    save('flickrange.settings', settings);
+    SENS_INPUTS.forEach((id) => { if ($(id) !== from) $(id).value = v; });
+    readout();
+  }
+  SENS_INPUTS.forEach((id) => {
+    const el = $(id);
+    el.addEventListener('input', () => setSens(parseFloat(el.value), el));
+    el.addEventListener('change', () => { el.value = settings.sens; });
+  });
+
+  let toastTimer = 0;
+  function toast(text) {
+    const el = $('toast');
+    el.textContent = text;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 1200);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (document.pointerLockElement !== canvas) return;
+    if (e.key !== '[' && e.key !== ']') return;
+    setSens(settings.sens + (e.key === ']' ? 0.01 : -0.01));
+    toast('Sensitivity ' + settings.sens.toFixed(2));
+  });
+
   function bindSettings() {
-    const sens = $('sens'), dpi = $('dpi'), fov = $('fov'), xs = $('xstyle'), xc = $('xcolor'), tc = $('tcolor'), snd = $('sound');
-    sens.value = settings.sens;
+    const dpi = $('dpi'), fov = $('fov'), xs = $('xstyle'), xc = $('xcolor'), tc = $('tcolor'), snd = $('sound');
+    SENS_INPUTS.forEach((id) => { $(id).value = settings.sens; });
     dpi.value = settings.dpi;
     fov.value = settings.fov;
     $('fovOut').textContent = settings.fov + '°';
@@ -702,8 +754,6 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
     tc.value = settings.tcolor;
     snd.checked = settings.sound;
     const commit = () => {
-      const s = parseFloat(sens.value);
-      if (s > 0 && s <= 20) settings.sens = s;
       const d = parseInt(dpi.value, 10);
       if (d >= 50 && d <= 50000) settings.dpi = d;
       settings.fov = +fov.value;
@@ -718,7 +768,7 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
       recolorIdle();
       readout();
     };
-    [sens, dpi, fov, xs, xc, tc, snd].forEach((el) => {
+    [dpi, fov, xs, xc, tc, snd].forEach((el) => {
       el.addEventListener('input', commit);
       el.addEventListener('change', commit);
     });

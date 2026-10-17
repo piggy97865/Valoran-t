@@ -4,4 +4,4 @@ A browser aim trainer with four drills: Gridshot, Spidershot, Microshot and Stra
 
 Open `index.html` in a desktop browser and click a drill. The game locks your mouse; press Esc to pause.
 
-Settings use Valorant's sensitivity scale (0.07° per mouse count at sens 1) and horizontal FOV, and show your eDPI and cm per 360°.
+Sensitivity uses Valorant's scale (0.07° per mouse count at sens 1). Set it with the slider on the menu or pause screen, or press [ and ] while playing. Settings also use Valorant's horizontal FOV and show your eDPI and cm per 360°.

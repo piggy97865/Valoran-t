@@ -1,0 +1,8 @@
+# Required: talks to Claude
+anthropic>=2.3.0
+# Optional extras (the app still runs without them)
+pillow             # custom pet pictures of any size, animated GIFs
+pyttsx3            # speaks replies out loud
+SpeechRecognition  # hears you through the microphone
+pyaudio            # microphone access for SpeechRecognition
+psutil             # battery / CPU info

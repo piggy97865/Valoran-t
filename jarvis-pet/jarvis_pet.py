@@ -470,7 +470,9 @@ class Brain:
 class Voice:
     def __init__(self, app):
         self.app = app
-        self.can_speak = pyttsx3 is not None
+        # Macs have a built-in "say" command that is more reliable than pyttsx3.
+        self.use_mac_say = OS == "Darwin" and shutil.which("say") is not None
+        self.can_speak = self.use_mac_say or pyttsx3 is not None
         self.can_listen = sr is not None
         self.speaking = False
         self.mic_lock = threading.Lock()
@@ -498,6 +500,9 @@ class Voice:
                 break
 
     def _speak_loop(self):
+        if self.use_mac_say:
+            self._mac_say_loop()
+            return
         if OS == "Windows":
             try:
                 import pythoncom  # comes with pyttsx3 on Windows
@@ -524,6 +529,22 @@ class Voice:
             try:
                 engine.say(text)
                 engine.runAndWait()
+            except Exception as e:
+                print(f"Speech error: {e}")
+            self.speaking = False
+            if done:
+                self.app.post(done)
+
+    def _mac_say_loop(self):
+        cmd = ["say"]
+        want = self.app.cfg.get("voice_name_contains", "").strip()
+        if want:
+            cmd += ["-v", want]
+        while True:
+            text, done = self.say_queue.get()
+            self.speaking = True
+            try:
+                subprocess.run(cmd + [text], check=False, timeout=120)
             except Exception as e:
                 print(f"Speech error: {e}")
             self.speaking = False

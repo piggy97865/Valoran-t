@@ -23,7 +23,7 @@ Click the pet to chat, or talk to it out loud. It can:
 3. Get a Claude API key from https://console.anthropic.com (a grown-up may need to set this up, since using the API costs a little money).
 4. Double-click `start.bat`. The first time you chat, the pet asks for your API key and saves it in `api_key.txt`.
 
-On Mac or Linux, run `./setup.sh` and then `./start.sh`. On a Mac, run `brew install portaudio` first so the microphone works.
+On a Mac: install Python from python.org, open Terminal, `cd` into this folder, then run `sh setup.sh` and `sh start.sh`. For the microphone, install Homebrew (https://brew.sh) and run `brew install portaudio` before setup. Mac will ask to let Terminal use the microphone; say OK.
 
 ## Using it
 

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Mac / Linux setup. On Mac, the microphone needs PortAudio first: brew install portaudio
+# Mac / Linux setup: run with  sh setup.sh
+# On Mac, the microphone also needs PortAudio first: brew install portaudio
 cd "$(dirname "$0")"
 python3 -m pip install "anthropic>=2.3.0" || exit 1
 for pkg in pillow pyttsx3 SpeechRecognition pyaudio psutil; do

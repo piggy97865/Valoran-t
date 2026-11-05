@@ -12,14 +12,16 @@ Each game is a single page with no build step. Open its `index.html` in a deskto
 
 ### Neon Drift (`neon-drift/`)
 
-Top-down neon street racing on four city tracks.
+3D racing on five tracks: four neon city circuits at night, plus **Spa**, a daytime forest track based on the real Spa-Francorchamps layout. It has La Source, the Eau Rouge/Raidillon climb, the Kemmel straight, Pouhon, Blanchimont and the Bus Stop chicane, and its hills slow you uphill and speed you up downhill.
 
 - **Race** against 0–5 AI drivers on Easy, Normal or Hard.
 - **Time Trial** races your fastest lap, shown as a ghost car.
 - **Split Screen** for two players on one keyboard (WASD and arrow keys), or with two gamepads.
 - **Online** races with up to 6 cars. Bots can fill the empty spots.
 
-Drift with Space to fill your boost meter, then press Shift to boost. The yellow arrows on the track give a free boost.
+Drift with Space to fill your boost meter, then press Shift to boost. The yellow arrows on the track give a free boost. Press C to switch between the chase, far and hood cameras (player 2 uses the `.` key).
+
+The 3D graphics use [three.js](https://threejs.org) (MIT, included in `shared/three.min.js`). They need a browser with WebGL, which almost every modern browser has.
 
 ### Bastion (`bastion/`)
 

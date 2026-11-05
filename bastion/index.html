@@ -303,6 +303,11 @@ const ENEMIES = {
   mini: { name: 'Splitling', hp: 38, speed: 1.9, armor: 0, bounty: 2, size: 8, color: '#3dd8e0' },
   wisp: { name: 'Wisp', hp: 75, speed: 1.55, armor: 0, bounty: 9, size: 11, color: '#e9e4ff', flying: true },
   boss: { name: 'Warlord', hp: 1100, speed: 0.6, armor: 3, bounty: 150, size: 24, color: '#ff2d6f', boss: true },
+  // Special bosses: one per difficulty, at wave 30 and every 10 waves in endless
+  jelly: { name: 'Jelly King', hp: 1700, speed: 0.5, armor: 0, bounty: 250, size: 27, color: '#ff7ad9', boss: true, special: true, leak: 8 },
+  jellyling: { name: 'Jellyling', hp: 70, speed: 1.6, armor: 0, bounty: 3, size: 9, color: '#ff9ae4' },
+  shield: { name: 'Shield Lord', hp: 2000, speed: 0.5, armor: 4, bounty: 300, size: 26, color: '#4a8cff', boss: true, special: true, leak: 8 },
+  dragon: { name: 'Shadow Dragon', hp: 2300, speed: 0.7, armor: 3, bounty: 350, size: 28, color: '#7a3cc0', boss: true, special: true, flying: true, leak: 8 },
 };
 const ENEMY_TYPES = Object.keys(ENEMIES);
 const DIFFS = [
@@ -311,12 +316,19 @@ const DIFFS = [
   { name: 'Hard', hp: 1.5, speed: 1.05, lives: 10, gold: 260, pause: 20 },
 ];
 const FINAL_WAVE = 30;
+const SPECIAL_BOSS = ['jelly', 'shield', 'dragon']; // Easy, Medium, Hard
 const BOUNTY_MULT = 1.5; // extra gold per kill
 const waveBonus = (n) => 40 + 5 * n;
 
-function waveGroups(n) {
+function waveGroups(n, diff) {
   const G = [];
-  const add = (type, count, gap, at) => { count = Math.round(count); if (count > 0) G.push({ type, count, gap, at }); };
+  // Endless (after wave 30): more enemies, packed closer together, every wave.
+  const ef = n > FINAL_WAVE ? 1 + (n - FINAL_WAVE) * 0.08 : 1;
+  const add = (type, count, gap, at) => {
+    const boss = ENEMIES[type].boss;
+    count = Math.round(boss ? count : count * ef);
+    if (count > 0) G.push({ type, count, gap: boss ? gap : gap / Math.sqrt(ef), at });
+  };
   const early = {
     1: [['grunt', 8, 1.1, 0]],
     2: [['grunt', 10, 0.9, 0], ['scout', 4, 0.7, 6]],
@@ -334,11 +346,20 @@ function waveGroups(n) {
   if (n >= 8) add('splitter', Math.floor(n / 4), 1.6, (at += 3));
   if (n >= 6 && n % 4 === 2) add('wisp', 3 + Math.floor(n / 3), 0.8, (at += 2));
   if (n >= 11 && n % 4 === 0) add('wisp', 2 + Math.floor(n / 4), 0.9, (at += 2));
-  if (n % 10 === 0) add('boss', Math.floor(n / 10), 6, (at += 4));
-  else if (n > FINAL_WAVE && n % 5 === 0) add('boss', 1, 1, (at += 4));
+  const special = SPECIAL_BOSS[diff || 0];
+  if (n < FINAL_WAVE) { if (n % 10 === 0) add('boss', Math.floor(n / 10), 6, (at += 4)); }
+  else if (n === FINAL_WAVE) { add('boss', 2, 6, (at += 4)); add(special, 1, 1, (at += 8)); }
+  else {
+    if (n >= 40 && n % 4 === 0) add('dragon', 1, 1, (at += 3));
+    if (n % 5 === 0) add('boss', 1 + Math.floor((n - FINAL_WAVE) / 10), 4, (at += 4));
+    if (n % 10 === 0) add(special, Math.floor((n - 20) / 10), 8, (at += 6));
+  }
   return G;
 }
-function hpScale(n) { return 1 + 0.12 * (n - 1) + 0.013 * (n - 1) * (n - 1); }
+function hpScale(n) {
+  const base = 1 + 0.12 * (n - 1) + 0.013 * (n - 1) * (n - 1);
+  return n > FINAL_WAVE ? base * Math.pow(1.11, n - FINAL_WAVE) : base;
+}
 
 /* Map geometry */
 function buildMap(def) {
@@ -420,19 +441,24 @@ class Sim {
     if (bonus) for (const p of this.players) this.gold[p.id] += bonus;
     this.wave++;
     this.next = null;
-    const groups = waveGroups(this.wave);
+    const groups = waveGroups(this.wave, this.diff);
     const base = this.queue.length ? this.queue[this.queue.length - 1].t : this.waveT;
     for (const g of groups) for (let k = 0; k < g.count; k++) this.queue.push({ t: base + g.at + k * g.gap, type: g.type, wave: this.wave });
     this.queue.sort((a, b) => a.t - b.t);
-    this.fx({ e: 'wave', n: this.wave, bonus, boss: groups.some((g) => g.type === 'boss') });
+    const sp = groups.find((g) => ENEMIES[g.type].special), wl = groups.some((g) => g.type === 'boss');
+    this.fx({ e: 'wave', n: this.wave, bonus, boss: sp ? ENEMIES[sp.type].name + ' approaches!' : wl ? 'A Warlord approaches!' : '' });
     return null;
   }
   spawn(type, wave, path, dist) {
     const E = ENEMIES[type];
     const hp = Math.round(E.hp * hpScale(wave) * this.D.hp * this.coopHp());
-    const e = { id: this.uid++, type, hp, maxHp: hp, speed: E.speed * (this.D.speed || 1), armor: E.armor + (E.armor && !E.boss ? Math.floor(wave / 8) : 0), bounty: E.bounty,
+    const endlessSpeed = 1 + Math.min(0.45, Math.max(0, wave - FINAL_WAVE) * 0.02);
+    const e = { id: this.uid++, type, hp, maxHp: hp, speed: E.speed * (this.D.speed || 1) * endlessSpeed, armor: E.armor + (E.armor && !E.boss ? Math.floor(wave / 8) : 0), bounty: E.bounty,
       size: E.size, flying: !!E.flying, path, dist: dist || 0, ofs: (Math.random() - 0.5) * (E.boss ? 4 : 12), slowT: 0, slowAmt: 0,
       x: 0, y: 0, a: 0, healT: 1.5 + Math.random(), summonT: 4, hit: 0 };
+    if (type === 'jelly') e.splits = [0.75, 0.5, 0.25];
+    if (type === 'shield') { e.shieldMax = e.shield = Math.round(hp * 0.35); e.shieldT = 0; }
+    if (type === 'dragon') { e.roarT = 4; e.baseSpeed = e.speed; }
     this.placeEnemy(e);
     this.enemies.push(e);
     return e;
@@ -464,7 +490,7 @@ class Sim {
       const path = this.pathOf(e);
       if (e.dist >= path.total) {
         this.enemies.splice(i, 1);
-        const cost = e.type === 'boss' ? 5 : 1;
+        const cost = ENEMIES[e.type].leak || (e.type === 'boss' ? 5 : 1);
         this.lives = Math.max(0, this.lives - cost);
         this.leaks += cost;
         this.fx({ e: 'leak', n: cost, type: e.type });
@@ -484,6 +510,22 @@ class Sim {
           if (o.hp < o.maxHp && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 < (1.7 * T) ** 2) { o.hp = Math.min(o.maxHp, o.hp + o.maxHp * 0.1); any = true; }
         }
         if (any) this.fx({ e: 'heal', x: e.x | 0, y: e.y | 0 });
+      }
+      if (e.shieldMax) {
+        e.shieldT += dt;
+        if (e.shieldT > 5 && e.shield < e.shieldMax) {
+          if (e.shield <= 0) this.fx({ e: 'shieldup', x: e.x | 0, y: e.y | 0 });
+          e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * 0.15 * dt);
+        }
+      }
+      if (e.type === 'dragon') {
+        if (!e.enraged && e.hp < e.maxHp * 0.5) { e.enraged = true; e.speed = e.baseSpeed * 1.5; this.fx({ e: 'enrage', x: e.x | 0, y: e.y | 0 }); }
+        if ((e.roarT -= dt) <= 0) {
+          e.roarT = e.enraged ? 4.5 : 6;
+          const r = 2.6 * T;
+          for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = 2;
+          this.fx({ e: 'roar', x: e.x | 0, y: e.y | 0, r });
+        }
       }
       if (e.type === 'boss' && (e.summonT -= dt) <= 0) {
         e.summonT = 7;
@@ -530,7 +572,7 @@ class Sim {
       }
       this.fx({ e: 'cleared', n: this.wave, bonus });
       if (this.wave >= FINAL_WAVE && !this.endless) { this.state = 'won'; this.fx({ e: 'won', wave: this.wave }); return; }
-      this.next = this.D.pause;
+      this.next = this.endless ? 10 : this.D.pause;
     }
     if (this.next != null) {
       this.next -= dt;
@@ -555,6 +597,7 @@ class Sim {
   towerStep(tw, dt) {
     const D = TOWERS[tw.kind], L = tw.level - 1;
     const r = D.range[L] * T;
+    if (tw.stun > 0) { tw.stun -= dt; tw.beam = 0; return; }
     tw.cd -= dt;
     if (D.support) { tw.angle += dt; return; }
     if (tw.kind === 'flame') {
@@ -751,8 +794,21 @@ class Sim {
   damage(e, dmg, tw, pierce, raw) {
     if (e.hp <= 0) return;
     if (tw && tw.buff && !raw) dmg *= tw.buff;
+    if (e.shieldMax) {
+      e.shieldT = 0;
+      if (e.shield > 0) {
+        const absorbed = Math.min(e.shield, dmg);
+        e.shield -= absorbed; dmg -= absorbed;
+        if (e.shield <= 0) this.fx({ e: 'shieldbreak', x: e.x | 0, y: e.y | 0 });
+        if (dmg <= 0) { e.hit = 0.05; return; }
+      }
+    }
     const real = pierce ? dmg : Math.max(dmg * 0.2, dmg - e.armor);
     e.hp -= real;
+    if (e.splits && e.splits.length && e.hp > 0 && e.hp / e.maxHp < e.splits[0]) {
+      e.splits.shift();
+      this.jellyBurst(e, 3);
+    }
     e.hit = 0.08;
     if (tw) tw.dealt = (tw.dealt || 0) + real;
     if (e.hp <= 0) this.kill(e, tw);
@@ -765,12 +821,20 @@ class Sim {
     const bounty = Math.round(e.bounty * BOUNTY_MULT);
     for (const p of this.players) this.gold[p.id] += bounty;
     this.fx({ e: 'die', x: e.x | 0, y: e.y | 0, type: e.type, b: bounty });
+    if (e.type === 'jelly') this.jellyBurst(e, 5);
     if (e.type === 'splitter') {
       for (const k of [-1, 1]) {
         const m = this.spawn('mini', this.wave, e.path, Math.max(0, e.dist + k * 8));
         m.maxHp = m.hp = Math.round(ENEMIES.mini.hp * (e.maxHp / ENEMIES.splitter.hp));
       }
     }
+  }
+  jellyBurst(e, n) {
+    for (let k = 0; k < n; k++) {
+      const m = this.spawn('jellyling', this.wave, e.path, Math.max(0, e.dist - 6 - k * 10));
+      m.ofs = (Math.random() - 0.5) * 16;
+    }
+    this.fx({ e: 'splat2', x: e.x | 0, y: e.y | 0 });
   }
   tileFree(tx, ty) {
     if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return false;
@@ -831,7 +895,7 @@ class Sim {
         return null;
       }
       case 'ping': this.fx({ e: 'ping', x: a.x | 0, y: a.y | 0, by: pid }); return null;
-      case 'continue': if (this.state === 'won') { this.endless = true; this.state = 'play'; this.next = this.D.pause; } return null;
+      case 'continue': if (this.state === 'won') { this.endless = true; this.state = 'play'; this.next = 15; } return null;
       case 'speed': this.speed = clamp(a.v | 0, 1, 3); return null;
       case 'pause': this.paused = !!a.v; return null;
     }
@@ -1149,10 +1213,53 @@ function drawEnemy(c, e, t) {
       c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -s); c.lineTo(-3, -3); c.lineTo(3, 3); c.lineTo(0, s); c.stroke();
       break;
     }
+    case 'jelly': case 'jellyling': {
+      const wob = Math.sin(t * 5 + e.id) * 0.08;
+      c.save(); c.scale(1 + wob, 1 - wob);
+      c.globalAlpha = 0.9;
+      c.beginPath(); c.arc(0, 0, s, Math.PI, 0); c.quadraticCurveTo(s, s, 0, s * 0.9); c.quadraticCurveTo(-s, s, -s, 0); c.fill(); c.stroke();
+      c.globalAlpha = 1;
+      c.fillStyle = 'rgba(255,255,255,0.45)'; c.beginPath(); c.ellipse(-s * 0.35, -s * 0.4, s * 0.25, s * 0.15, -0.5, 0, TAU); c.fill();
+      c.restore();
+      if (e.type === 'jelly') {
+        c.fillStyle = '#ffcf4a'; c.strokeStyle = '#8a5c08'; c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(-12, -s + 2); c.lineTo(-12, -s - 9); c.lineTo(-6, -s - 3); c.lineTo(0, -s - 12); c.lineTo(6, -s - 3); c.lineTo(12, -s - 9); c.lineTo(12, -s + 2); c.closePath(); c.fill(); c.stroke();
+      }
+      break;
+    }
+    case 'shield': {
+      c.beginPath(); c.roundRect(-s, -s * 0.9, s * 2, s * 1.9, 8); c.fill(); c.stroke();
+      c.fillStyle = flash ? '#fff' : '#c9d3e6'; c.beginPath(); c.roundRect(-s * 0.7, -s * 1.15, s * 1.4, s * 0.8, 6); c.fill(); c.stroke();
+      c.fillStyle = '#1b2433'; c.fillRect(-s * 0.45, -s * 0.85, s * 0.9, s * 0.18);
+      c.fillStyle = '#ffcf4a'; c.beginPath(); c.moveTo(0, -s * 1.15); c.lineTo(-4, -s * 1.5); c.lineTo(4, -s * 1.5); c.fill();
+      const sf = e.shieldMax ? e.shield / e.shieldMax : (e.shieldF || 0);
+      if (sf > 0) {
+        c.strokeStyle = `rgba(120,190,255,${0.35 + 0.5 * sf})`; c.lineWidth = 3;
+        c.fillStyle = `rgba(90,160,255,${0.12 + 0.2 * sf})`;
+        c.beginPath(); c.arc(0, 0, s + 9 + Math.sin(t * 6) * 1.5, 0, TAU); c.fill(); c.stroke();
+      }
+      break;
+    }
+    case 'dragon': {
+      c.rotate(a);
+      const flap = Math.sin(t * 8 + e.id) * 0.5;
+      c.fillStyle = flash ? '#fff' : '#4a2470';
+      for (const sd of [-1, 1]) {
+        c.beginPath(); c.moveTo(-2, 0); c.lineTo(-14, sd * (s + 18 + flap * 10)); c.lineTo(6, sd * (s * 0.6 + 8 + flap * 6)); c.closePath(); c.fill(); c.stroke();
+      }
+      c.fillStyle = flash ? '#fff' : col;
+      c.beginPath(); c.ellipse(0, 0, s, s * 0.55, 0, 0, TAU); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-s, 0); c.lineTo(-s - 16, -5); c.lineTo(-s - 16, 5); c.closePath(); c.fill();
+      c.beginPath(); c.ellipse(s * 0.95, 0, s * 0.45, s * 0.35, 0, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = e.enraged || e.rage ? '#ff3b4f' : '#ffd84a';
+      for (const sd of [-1, 1]) { c.beginPath(); c.arc(s * 1.1, sd * 4, 2.6, 0, TAU); c.fill(); }
+      c.rotate(-a);
+      break;
+    }
     default: { c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.stroke(); }
   }
   // Eyes
-  if (e.type !== 'healer' && e.type !== 'swarm') {
+  if (!['healer', 'swarm', 'jelly', 'jellyling', 'dragon'].includes(e.type)) {
     const ex = Math.cos(a) * s * 0.35, ey = Math.sin(a) * s * 0.35, px = -Math.sin(a) * s * 0.32, py = Math.cos(a) * s * 0.32;
     const er = Math.max(2, s * 0.22);
     for (const k of [-1, 1]) {
@@ -1216,7 +1323,12 @@ function addFx(e, view) {
       effects.push({ k: 'ping', x: e.x, y: e.y, t: 0, T: 2.2, col: p ? PCOLORS[p.color] : '#ffffff', name: p ? p.name : '' });
       Sound.play('ping'); break;
     }
-    case 'wave': banner('Wave ' + e.n, e.boss ? 'A Warlord approaches!' : e.bonus ? `Called early: +${e.bonus} gold` : ''); Sound.play(e.boss ? 'boss' : 'wave'); break;
+    case 'wave': banner('Wave ' + e.n, e.boss ? e.boss : e.bonus ? `Called early: +${e.bonus} gold` : ''); Sound.play(e.boss ? 'boss' : 'wave'); break;
+    case 'roar': effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.7, col: '170,90,255', fill: true }); effects.push({ k: 'text', x: e.x, y: e.y - 40, text: 'ROAR!', t: 0, T: 1, col: '#c48cff' }); Sound.play('boss'); break;
+    case 'enrage': effects.push({ k: 'text', x: e.x, y: e.y - 44, text: 'ENRAGED!', t: 0, T: 1.4, col: '#ff4a6a' }); break;
+    case 'shieldbreak': effects.push({ k: 'ring', x: e.x, y: e.y, r: 40, t: 0, T: 0.5, col: '120,180,255' }); effects.push({ k: 'text', x: e.x, y: e.y - 40, text: 'SHIELD BROKEN!', t: 0, T: 1.2, col: '#8fc4ff' }); Sound.play('pop'); break;
+    case 'shieldup': effects.push({ k: 'text', x: e.x, y: e.y - 40, text: 'Shield back up!', t: 0, T: 1.2, col: '#8fc4ff' }); break;
+    case 'splat2': effects.push({ k: 'ring', x: e.x, y: e.y, r: 36, t: 0, T: 0.4, col: '255,122,217' }); Sound.play('splat'); break;
     case 'cleared': banner('Wave ' + e.n + ' cleared', '+' + e.bonus + ' gold'); Sound.play('clear'); break;
     case 'gift': {
       const from = view.players.find((x) => x.id === e.from), to = view.players.find((x) => x.id === e.to);
@@ -1538,6 +1650,11 @@ function render(dt) {
     ctx.save(); ctx.translate(tw.x, tw.y);
     const owner = v.players.length > 1 ? v.players.find((p) => p.id === tw.owner) : null;
     drawTower(ctx, tw.kind, tw.level, tw.angle, owner ? PCOLORS[owner.color] : null, tNow, tw.id);
+    if (tw.stun > 0) {
+      ctx.fillStyle = 'rgba(90,40,140,0.45)'; ctx.beginPath(); ctx.roundRect(-17, -17, 34, 34, 8); ctx.fill();
+      ctx.font = '900 12px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#e2c8ff';
+      ctx.fillText('z z', Math.sin(tNow * 3) * 2, -20 - (tNow * 10) % 6);
+    }
     if (tw.buff > 1) { // boosted by a banner
       ctx.fillStyle = '#ffcf4a'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(11, -17); ctx.lineTo(15, -12); ctx.lineTo(13, -12); ctx.lineTo(13, -8); ctx.lineTo(9, -8); ctx.lineTo(9, -12); ctx.lineTo(7, -12); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -1648,6 +1765,21 @@ function render(dt) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(12, 14, tw + 8, 16);
     ctx.fillStyle = col; ctx.fillText(p.name, 16, 26);
     ctx.restore();
+  }
+  // Boss health bar
+  {
+    let boss = null;
+    for (const e of v.enemies) { const E = ENEMIES[e.type]; if (E.boss && (!boss || (E.special && !ENEMIES[boss.type].special))) boss = e; }
+    if (boss) {
+      const E = ENEMIES[boss.type], w = 420, x = WW / 2 - w / 2, y = 12, f = clamp(boss.hp / boss.maxHp, 0, 1);
+      ctx.fillStyle = 'rgba(10,12,18,0.75)'; ctx.beginPath(); ctx.roundRect(x - 10, y - 4, w + 20, 40, 10); ctx.fill();
+      ctx.font = '15px "Lilita One", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : ''), WW / 2, y + 13);
+      ctx.fillStyle = '#3a1e24'; ctx.fillRect(x, y + 19, w, 10);
+      ctx.fillStyle = E.color; ctx.fillRect(x, y + 19, w * f, 10);
+      const sf = boss.shieldMax ? boss.shield / boss.shieldMax : boss.shieldF || 0;
+      if (sf > 0) { ctx.fillStyle = 'rgba(140,200,255,0.9)'; ctx.fillRect(x, y + 19, w * sf * 0.35, 4); }
+    }
   }
   // Leak flash + paused tint
   for (const f of effects) if (f.k === 'leak') {
@@ -1920,9 +2052,9 @@ const net = {
       t: 'snap',
       st: [s.wave, s.lives, s.state, s.next == null ? -1 : +s.next.toFixed(1), s.speed, s.paused ? 1 : 0, s.canCallWave() ? 1 : 0, s.endless ? 1 : 0],
       gold: s.gold,
-      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0), +e.a.toFixed(2)]),
+      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0) | (e.enraged ? 4 : 0), +e.a.toFixed(2), e.shieldMax ? Math.round((e.shield / e.shieldMax) * 100) : 0]),
       p: s.projectiles.map((p) => [p.id, PROJ_KINDS.indexOf(p.kind), Math.round(p.x), Math.round(p.y), Math.round(p.h || 0), +(p.a || 0).toFixed(2)]),
-      tw: s.towers.map((t) => [t.id, TOWER_KINDS.indexOf(t.kind), t.tx, t.ty, t.level, pidx(t.owner), +t.angle.toFixed(2), t.mode, t.beam || 0, t.invested, t.kills || 0, Math.round((t.buff - 1) * 100), Math.round(t.dealt || 0)]),
+      tw: s.towers.map((t) => [t.id, TOWER_KINDS.indexOf(t.kind), t.tx, t.ty, t.level, pidx(t.owner), +t.angle.toFixed(2), t.mode, t.beam || 0, t.invested, t.kills || 0, Math.round((t.buff - 1) * 100), Math.round(t.dealt || 0), t.stun > 0 ? 1 : 0]),
       c: s.clouds.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.r), +(c.t / c.T).toFixed(2)]),
       fx: this.outbox,
       cur: Object.entries(game.cursors).map(([id, c]) => [id, Math.round(c.x), Math.round(c.y)]).concat(ui.mouse ? [['host', Math.round(ui.mouse.x), Math.round(ui.mouse.y)]] : []),
@@ -1966,7 +2098,7 @@ const net = {
       v.paused = !!v.paused; v.canCall = !!v.canCall; v.endless = !!v.endless;
       v.gold = m.gold;
       v.towers = m.tw.map((r) => ({ id: r[0], kind: TOWER_KINDS[r[1]], tx: r[2], ty: r[3], x: r[2] * T + T / 2, y: r[3] * T + T / 2, level: r[4],
-        owner: (v.players[r[5]] || {}).id, angle: r[6], mode: r[7], beam: r[8], invested: r[9], kills: r[10], buff: 1 + (r[11] || 0) / 100, dealt: r[12] || 0 }));
+        owner: (v.players[r[5]] || {}).id, angle: r[6], mode: r[7], beam: r[8], invested: r[9], kills: r[10], buff: 1 + (r[11] || 0) / 100, dealt: r[12] || 0, stun: r[13] || 0 }));
       v.clouds = (m.c || []).map((c) => ({ x: c[0], y: c[1], r: c[2], f: c[3] }));
       for (const e of m.fx) addFx(e, v);
       for (const [id, x, y] of m.cur) game.cursors[id] = Object.assign(game.cursors[id] || {}, { x, y });
@@ -1988,7 +2120,7 @@ const net = {
     v.enemies = B.e.map((r) => {
       const o = pa.get(r[0]) || r;
       const type = ENEMY_TYPES[r[1]];
-      return { id: r[0], type, x: lerp(o[2], r[2], u), y: lerp(o[3], r[3], u), hp: r[4], maxHp: 1000, slow: r[5] & 1, burn: r[5] & 2, a: r[6], hit: 0 };
+      return { id: r[0], type, x: lerp(o[2], r[2], u), y: lerp(o[3], r[3], u), hp: r[4], maxHp: 1000, slow: r[5] & 1, burn: r[5] & 2, rage: r[5] & 4, a: r[6], shieldF: (r[7] || 0) / 100, hit: 0 };
     });
     const pp = new Map(A.p.map((r) => [r[0], r]));
     v.projectiles = B.p.map((r) => {

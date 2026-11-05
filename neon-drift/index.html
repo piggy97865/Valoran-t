@@ -103,7 +103,8 @@
   <h1 class="logo">NEON<span>DRIFT</span></h1>
   <div class="tag">3D street racing</div>
   <div class="menu-col">
-    <button class="big primary" data-mode="race">Race<small>You vs. AI drivers</small></button>
+    <button class="big primary" data-mode="drift">Drift Challenge<small>Score drift points in 90 seconds</small></button>
+    <button class="big" data-mode="race">Race<small>You vs. AI drivers</small></button>
     <button class="big" data-mode="trial">Time Trial<small>Beat your ghost</small></button>
     <button class="big" data-mode="split">Split Screen<small>2 players, one keyboard</small></button>
     <button class="big" data-mode="online">Online<small>Race friends with a room code</small></button>
@@ -116,7 +117,7 @@
   <div class="help panel" style="width:auto">
     <div><h3>Drive</h3><div class="keys">
       <b><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> / arrows</b><span>Steer, gas, brake</span>
-      <b><kbd>Space</kbd></b><span>Drift (handbrake)</span>
+      <b><kbd>Space</kbd> + steer</b><span>Drift</span>
       <b><kbd>Shift</kbd></b><span>Boost</span>
       <b><kbd>R</kbd></b><span>Back on track</span>
       <b><kbd>C</kbd></b><span>Change camera</span>
@@ -130,7 +131,9 @@
       <b><kbd>.</kbd></b><span>Change camera</span>
     </div></div>
     <div><h3>Tips</h3><div class="keys" style="grid-template-columns:auto">
-      <span>Drifting fills your <b>boost</b> meter.</span>
+      <span>Hold <b>Space</b> and steer into a corner to <b>drift</b>.</span>
+      <span>Longer drifts give a bigger <b>boost</b> when you let go.</span>
+      <span>Chain drifts together for a points <b>combo</b>.</span>
       <span>Hit the <b>yellow arrows</b> for a free boost.</span>
       <span>Gamepads work too.</span>
     </div></div>
@@ -571,6 +574,8 @@ const Sound = {
 /* =========================================================================
    Car
    ========================================================================= */
+const DRIFT_COLORS = ['#cfd6f5', '#4ad6ff', '#ff9a2e', '#c45cff'];
+const DRIFT_TIME = 90;
 const PHYS = { maxSpeed: 640, accel: 560, brake: 1000, reverse: 220, drag: 0.22, turn: 3.0, boostMul: 1.38 };
 class Car {
   constructor(opts) {
@@ -580,6 +585,7 @@ class Car {
       boost: 0.25, boosting: false, padT: 0, padCd: 0, finished: false, finishTime: null, drifting: false, onRoad: true, braking: false,
       wrongT: 0, stuckT: 0, lane: 0, laneT: 0, input: { throttle: 0, brake: 0, steer: 0, drift: false, boost: false },
       lateral: 0, speed: 0, view: -1, remote: null, engine: null, trailT: 0, lastSafe: 0, recent: 0, z: 0, pitch: 0, bank: 0, camMode: 0,
+      driftOn: false, driftDir: 0, driftT: 0, driftAngle: 0, driftPts: 0, driftLvl: 0, driftCd: 0, straightT: 0, driftScore: 0, chain: 0, chainT: 0,
     });
   }
   place(tr, i, side) {
@@ -631,27 +637,55 @@ class Car {
     vf -= vf * (PHYS.drag + (this.onRoad ? 0 : 1.1)) * dt;
     if (!inp.throttle && !inp.brake) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 60 * dt);
     if (vf > vmax) vf = lerp(vf, vmax, 1 - Math.exp(-2.5 * dt));
-    // Grip: handbrake lets the back slide out
-    const drift = inp.drift && Math.abs(vf) > 120;
-    if (drift) vf -= vf * 0.35 * dt;
-    const grip = drift ? 1.7 : this.onRoad ? 9 : 4.5;
-    vl *= Math.exp(-grip * dt);
-    // Steering
+    // ---- Steering and drifting ----
+    // Hold drift and steer at speed to start a drift. While drifting the car keeps most of its speed and slides:
+    // steering into the drift tightens it, steering away widens it. Letting go gives a boost if the drift was long.
+    this.driftCd = Math.max(0, this.driftCd - dt);
+    if (!this.driftOn && inp.drift && vf > 150 && Math.abs(inp.steer) > 0.2 && this.driftCd <= 0) {
+      this.driftOn = true; this.driftDir = Math.sign(inp.steer); this.driftT = 0; this.driftPts = 0; this.straightT = 0;
+      this.av += this.driftDir * 0.9;
+    }
+    if (this.driftOn && (!inp.drift || vf < 100)) this.endDrift(race, true);
     const sp = Math.abs(vf);
-    const steerAmt = clamp(sp / 170, 0, 1) * (1 - 0.32 * clamp(sp / PHYS.maxSpeed, 0, 1.3));
-    const targetAv = inp.steer * PHYS.turn * steerAmt * Math.sign(vf || 1) * (drift ? 1.45 : 1);
-    this.av = lerp(this.av, targetAv, 1 - Math.exp(-14 * dt));
-    this.a = wrapAngle(this.a + this.av * dt);
-    // Drift kicks the back out a little more
-    if (drift) vl += -inp.steer * sp * 0.9 * dt;
-    // Back to world space (using the new heading, so the car "carries" its speed through the turn)
-    const nfx = Math.cos(this.a), nfy = Math.sin(this.a);
-    this.vx = nfx * vf + -nfy * vl;
-    this.vy = nfy * vf + nfx * vl;
+    if (this.driftOn) {
+      this.driftT += dt;
+      const into = clamp(inp.steer * this.driftDir, -1, 1);
+      const targetAv = this.driftDir * PHYS.turn * (0.55 + 0.55 * into);
+      this.av = lerp(this.av, targetAv, 1 - Math.exp(-8 * dt));
+      vf -= vf * 0.1 * dt;
+      let wx = fx * vf + rx * vl, wy = fy * vf + ry * vl;
+      this.a = wrapAngle(this.a + this.av * dt);
+      const va = Math.atan2(wy, wx), spd = Math.hypot(wx, wy);
+      let diff = wrapAngle(this.a - va);
+      const maxAng = 1.05;
+      if (Math.abs(diff) > maxAng) { diff = Math.sign(diff) * maxAng; this.a = wrapAngle(va + diff); this.av *= 0.6; }
+      const nva = va + diff * (1 - Math.exp(-(this.onRoad ? 2.3 : 3.5) * dt));
+      this.vx = Math.cos(nva) * spd; this.vy = Math.sin(nva) * spd;
+      this.driftAngle = Math.abs(wrapAngle(this.a - nva));
+      vl = (this.vx * -Math.sin(this.a) + this.vy * Math.cos(this.a));
+      // Straightened out for a while? The drift is over.
+      if (this.driftAngle < 0.12) this.straightT += dt; else this.straightT = 0;
+      if (this.straightT > 0.45) this.endDrift(race, true);
+      this.driftLvl = this.driftT > 2.4 ? 3 : this.driftT > 1.4 ? 2 : this.driftT > 0.6 ? 1 : 0;
+      if (this.onRoad && race.state === 'racing' && this.driftOn) this.driftPts += spd * this.driftAngle * dt * 0.6;
+    } else {
+      const grip = this.onRoad ? 9 : 4.5;
+      vl *= Math.exp(-grip * dt);
+      const steerAmt = clamp(sp / 170, 0, 1) * (1 - 0.32 * clamp(sp / PHYS.maxSpeed, 0, 1.3));
+      const targetAv = inp.steer * PHYS.turn * steerAmt * Math.sign(vf || 1);
+      this.av = lerp(this.av, targetAv, 1 - Math.exp(-14 * dt));
+      this.a = wrapAngle(this.a + this.av * dt);
+      // Back to world space (using the new heading, so the car carries its speed through the turn)
+      const nfx = Math.cos(this.a), nfy = Math.sin(this.a);
+      this.vx = nfx * vf + -nfy * vl;
+      this.vy = nfy * vf + nfx * vl;
+      this.driftAngle = 0; this.driftLvl = 0;
+      if (this.chainT > 0 && (this.chainT -= dt) <= 0) this.chain = 0;
+    }
     this.x += this.vx * dt; this.y += this.vy * dt;
     this.speed = Math.hypot(this.vx, this.vy);
     this.lateral = vl;
-    this.drifting = Math.abs(vl) > 110 && sp > 160;
+    this.drifting = (this.driftOn && this.driftAngle > 0.12) || (Math.abs(vl) > 110 && sp > 160);
     if (this.drifting && this.onRoad && race.state === 'racing') this.boost = Math.min(1, this.boost + Math.min(Math.abs(vl), 400) / 400 * 0.32 * dt);
     // Invisible wall at the edge of the lit area
     const n2 = tr.nearest(this.x, this.y);
@@ -662,7 +696,7 @@ class Car {
       if (vn > 0) {
         this.vx -= dx * vn * 1.5; this.vy -= dy * vn * 1.5;
         this.vx *= 0.8; this.vy *= 0.8;
-        if (vn > 120) { race.sparks(this.x, this.y, 10, this.z + 8); if (this.view >= 0) Sound.burst(0.15, 300, 0.3 * clamp(vn / 400, 0, 1)); }
+        if (vn > 120) { race.sparks(this.x, this.y, 10, this.z + 8); if (this.view >= 0) Sound.burst(0.15, 300, 0.3 * clamp(vn / 400, 0, 1)); if (this.driftOn) this.endDrift(race, false); }
       }
     }
     // Hills: gravity slows you uphill and speeds you up downhill
@@ -681,6 +715,33 @@ class Car {
     if (this.onRoad && Math.abs(n2.side) < ROAD_W / 2 - 10) this.lastSafe = n2.i;
     this.trackProgress(race);
   }
+  endDrift(race, ok) {
+    if (!this.driftOn) return;
+    this.driftOn = false;
+    this.driftCd = 0.2;
+    this.driftAngle = 0;
+    const lvl = this.driftLvl;
+    this.driftLvl = 0;
+    if (!ok) {
+      if (this.driftPts > 30) race.flash(this.view, 'DRIFT LOST', '#ff4060', 1.1);
+      this.chain = 0; this.driftPts = 0;
+      return;
+    }
+    if (race.state !== 'racing') { this.driftPts = 0; return; }
+    if (lvl) {
+      this.padT = Math.max(this.padT, [0, 0.55, 0.95, 1.4][lvl]);
+      if (this.view >= 0) { Sound.burst(0.4, [0, 700, 1000, 1400][lvl], 0.25, 0.7); Sound.beep([0, 520, 700, 940][lvl], 0.15, 'square', 0.06); }
+    }
+    const pts = Math.round(this.driftPts * (1 + Math.min(this.chain, 8) * 0.5));
+    if (pts >= 20) {
+      this.driftScore += pts;
+      this.chain++;
+      this.chainT = 2.2;
+      if (this.view >= 0) race.flash(this.view, '+' + pts.toLocaleString() + (lvl ? '  BOOST!' : ''), DRIFT_COLORS[lvl], 1.2);
+    }
+    this.driftPts = 0;
+  }
+  get comboMult() { return 1 + Math.min(this.chain, 8) * 0.5; }
   trackProgress(race) {
     const tr = race.track, N = tr.N;
     const ni = tr.local(this.idx, this.x, this.y, 24);
@@ -730,7 +791,7 @@ function aiDrive(car, race, dt) {
   const target = PHYS.maxSpeed * car.skill * clamp(1.08 - bend * 0.62, 0.38, 1);
   inp.throttle = sp < target ? 1 : 0.2;
   inp.brake = sp > target + 70 ? 1 : 0;
-  inp.drift = bend > 1.5 && sp > target + 40 && Math.abs(diff) > 0.25;
+  inp.drift = false;
   inp.boost = car.boost > 0.5 && bend < 0.25 && sp > 300;
   if (sp < 40 && car.lap >= -1) car.stuckT += dt; else car.stuckT = 0;
   if (car.stuckT > 2.2 || car.wrongT > 1.5) { car.respawn(tr); car.stuckT = 0; car.wrongT = 0; }
@@ -823,7 +884,15 @@ class Race {
       if (ft >= this.ghostRec.length) this.ghostRec.push([Math.round(me.x), Math.round(me.y), +me.a.toFixed(3)]);
     }
     // End of race
-    if (this.state === 'racing' && this.mode !== 'online' && this.humans.every((c) => c.finished)) {
+    if (this.mode === 'drift' && this.state === 'racing' && this.t >= DRIFT_TIME) {
+      for (const c of this.humans) c.endDrift(this, true);
+      const me = this.views[0], best = store.get('drift.' + this.track.def.id, 0);
+      if (me.driftScore > best) { store.set('drift.' + this.track.def.id, me.driftScore); this.newBest = best > 0; }
+      this.flash(0, "TIME'S UP", '#ffd23d', 2);
+      this.state = 'done';
+      this.endTimer = 1.8;
+    }
+    if (this.state === 'racing' && this.mode !== 'online' && this.mode !== 'drift' && this.humans.every((c) => c.finished)) {
       this.state = 'done';
       this.endTimer = 2.2;
     }
@@ -880,6 +949,13 @@ class Race {
       if (Math.random() < 0.6) this.puff(car.x - fx * 18, car.y - fy * 18, car.z + 5, this.track.flat ? '#c8d2ff' : '#e8e8e8', 0.7, 9);
     } else car.lastSkid = null;
     if (!car.onRoad && Math.random() < 0.5) this.puff(car.x - fx * 18, car.y - fy * 18, car.z + 4, this.track.flat ? '#7882aa' : '#8a7550', 0.6, 8);
+    if (car.driftOn && car.driftLvl > 0 && Math.random() < 0.8) {
+      for (const sd of [-1, 1]) {
+        const a = Math.random() * TAU, sp2 = 60 + Math.random() * 120;
+        this.particles.push({ x: car.x - fx * 17 - fy * 10 * sd, y: car.y - fy * 17 + fx * 10 * sd, z: car.z + 3, vz: 40 + Math.random() * 60,
+          vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2, life: 0.3, max: 0.3, size: 3 + car.driftLvl, color: DRIFT_COLORS[car.driftLvl], glow: true });
+      }
+    }
     if (car.boosting) {
       for (let k = 0; k < 2; k++) {
         this.particles.push({ x: car.x - fx * 26 + (Math.random() - 0.5) * 8, y: car.y - fy * 26 + (Math.random() - 0.5) * 8, z: car.z + 9,
@@ -1571,7 +1647,8 @@ class RaceGfx {
   renderView(v, k, car, dt) {
     const C = this.camera(k), cam = C.cam, tr = this.race.track, mode = CAM_MODES[car.camMode || 0];
     if (C.yaw == null) C.yaw = car.a;
-    C.yaw += wrapAngle(car.a - C.yaw) * (1 - Math.exp(-(mode.hood ? 16 : 5) * dt));
+    const yawTarget = car.driftOn && car.speed > 60 ? car.a + wrapAngle(Math.atan2(car.vy, car.vx) - car.a) * 0.6 : car.a;
+    C.yaw += wrapAngle(yawTarget - C.yaw) * (1 - Math.exp(-(mode.hood ? 16 : 5) * dt));
     const fx = Math.cos(C.yaw), fy = Math.sin(C.yaw);
     const px = car.x - fx * mode.dist, py = car.y - fy * mode.dist;
     let ph = car.z + mode.height;
@@ -1658,12 +1735,13 @@ function drawHud(race, view, car, rank, tags) {
   }
   // Dark backing panels so the HUD reads on bright tracks too
   ctx.fillStyle = 'rgba(6,8,17,0.42)';
-  ctx.beginPath(); ctx.roundRect(pad - 10 * s, pad - 8 * s, 200 * s, (race.mode === 'trial' ? 72 : 128) * s, 12 * s); ctx.fill();
+  const solo = race.mode === 'trial' || race.mode === 'drift';
+  ctx.beginPath(); ctx.roundRect(pad - 10 * s, pad - 8 * s, 200 * s, (solo ? 72 : 128) * s, 12 * s); ctx.fill();
   ctx.beginPath(); ctx.roundRect(view.w - pad - 250 * s, pad - 6 * s, 260 * s, (race.mode === 'trial' && race.ghost ? 140 : 118) * s, 12 * s); ctx.fill();
   ctx.beginPath(); ctx.arc(view.w - pad - 80 * s, view.h - pad - 70 * s, 84 * s, 0, TAU); ctx.fill();
   // Position + lap
   ctx.textAlign = 'left';
-  if (race.mode !== 'trial') {
+  if (!solo) {
     ctx.font = `900 italic ${58 * s}px Orbitron, sans-serif`;
     ctx.fillStyle = '#fff'; ctx.shadowColor = car.color; ctx.shadowBlur = 16 * s;
     const pt = String(rank);
@@ -1675,14 +1753,63 @@ function drawHud(race, view, car, rank, tags) {
   }
   const lapNum = clamp(car.lap + 1, 1, race.laps);
   ctx.font = `700 ${16 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#8e9ac0';
-  const ly = race.mode === 'trial' ? pad + 24 * s : pad + 84 * s;
-  ctx.fillText('LAP', pad, ly);
-  ctx.font = `900 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#fff';
-  ctx.fillText(car.finished ? 'DONE' : lapNum + '/' + race.laps, pad, ly + 30 * s);
+  const ly = solo ? pad + 24 * s : pad + 84 * s;
+  if (race.mode === 'drift') {
+    const left = race.state === 'countdown' ? DRIFT_TIME : Math.max(0, DRIFT_TIME - race.t);
+    ctx.fillText('TIME LEFT', pad, ly);
+    ctx.font = `900 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = left < 10 ? '#ff4060' : '#fff';
+    ctx.fillText(Math.ceil(left) + 's', pad, ly + 30 * s);
+  } else {
+    ctx.fillText('LAP', pad, ly);
+    ctx.font = `900 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#fff';
+    ctx.fillText(car.finished ? 'DONE' : lapNum + '/' + race.laps, pad, ly + 30 * s);
+  }
+  // Drift score + the drift you're doing right now
+  {
+    const cx = view.w / 2;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(6,8,17,0.42)';
+    ctx.beginPath(); ctx.roundRect(cx - 120 * s, pad - 8 * s, 240 * s, 58 * s, 12 * s); ctx.fill();
+    ctx.font = `700 ${13 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#8e9ac0';
+    ctx.fillText(car.chain > 0 ? `DRIFT SCORE  ·  COMBO x${car.comboMult.toFixed(1)}` : 'DRIFT SCORE', cx, pad + 10 * s);
+    ctx.font = `900 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#fff';
+    ctx.fillText(car.driftScore.toLocaleString(), cx, pad + 42 * s);
+    if (car.driftOn && car.driftPts > 1) {
+      const col = DRIFT_COLORS[car.driftLvl];
+      ctx.font = `900 italic ${(40 + car.driftLvl * 6) * s}px Orbitron, sans-serif`;
+      ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 20 * s;
+      ctx.fillText('+' + Math.round(car.driftPts * car.comboMult).toLocaleString(), cx, view.h * 0.2 + 30 * s);
+      ctx.shadowBlur = 0;
+      // boost charge bar
+      const bw = 220 * s, bx = cx - bw / 2, by = view.h * 0.2 + 46 * s, f = clamp(car.driftT / 2.4, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.beginPath(); ctx.roundRect(bx, by, bw, 8 * s, 4 * s); ctx.fill();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(bx, by, Math.max(8 * s, bw * f), 8 * s, 4 * s); ctx.fill();
+      ctx.font = `700 ${12 * s}px Orbitron, sans-serif`; ctx.fillStyle = col;
+      ctx.fillText(['DRIFT!', 'BOOST 1', 'BOOST 2', 'MAX BOOST'][car.driftLvl], cx, by + 24 * s);
+    }
+    // How-to hint at the start
+    if ((race.state === 'countdown' || race.t < 6) && car.driftScore === 0 && !car.driftOn) {
+      ctx.font = `700 ${20 * s}px Rajdhani, sans-serif`; ctx.fillStyle = '#ffffff';
+      const key = car.keymap === 'p2' ? '/' : 'SPACE';
+      ctx.fillStyle = 'rgba(6,8,17,0.55)'; ctx.beginPath(); ctx.roundRect(cx - 190 * s, view.h * 0.72 - 22 * s, 380 * s, 32 * s, 10 * s); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(`Hold ${key} and steer into a corner to drift!`, cx, view.h * 0.72);
+    }
+    ctx.textAlign = 'left';
+  }
   // Times
   ctx.textAlign = 'right';
   const rx = view.w - pad;
+  if (race.mode === 'drift') {
+    const best = store.get('drift.' + race.track.def.id, 0);
+    ctx.font = `600 ${18 * s}px Rajdhani, sans-serif`; ctx.fillStyle = '#8e9ac0';
+    ctx.fillText('BEST DRIFT SCORE', rx, pad + 18 * s);
+    ctx.font = `700 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#ffd23d';
+    ctx.fillText(Math.max(best, car.driftScore).toLocaleString(), rx, pad + 50 * s);
+    ctx.font = `600 ${16 * s}px Rajdhani, sans-serif`; ctx.fillStyle = car.driftScore > best && best > 0 ? '#5dff6a' : '#8e9ac0';
+    ctx.fillText(car.driftScore > best && best > 0 ? 'NEW BEST!' : 'Longer drifts = bigger boost', rx, pad + 76 * s);
+  }
   const cur = race.state === 'countdown' ? 0 : car.finished ? car.finishTime : race.t;
+  if (race.mode !== 'drift') {
   ctx.font = `700 ${28 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#fff';
   ctx.fillText(fmtTime(cur), rx, pad + 30 * s);
   ctx.font = `600 ${18 * s}px Rajdhani, sans-serif`; ctx.fillStyle = '#8e9ac0';
@@ -1692,6 +1819,7 @@ function drawHud(race, view, car, rank, tags) {
   const rec = store.get('best.' + race.track.def.id, null);
   ctx.fillStyle = '#ffd23d'; ctx.fillText('RECORD  ' + fmtTime(rec), rx, pad + 100 * s);
   if (race.mode === 'trial' && race.ghost) { ctx.fillStyle = '#cfd6f5'; ctx.fillText('GHOST  ' + fmtTime(race.ghost.time), rx, pad + 122 * s); }
+  }
   // Speedo + boost
   const cx = view.w - pad - 80 * s, cy = view.h - pad - 70 * s, R = 62 * s;
   const sp = Math.min(car.speed / (PHYS.maxSpeed * PHYS.boostMul), 1);
@@ -1728,7 +1856,7 @@ function drawHud(race, view, car, rank, tags) {
     ctx.font = `900 italic ${120 * s}px Orbitron, sans-serif`; ctx.fillStyle = '#5dff6a'; ctx.shadowColor = '#5dff6a'; ctx.shadowBlur = 30 * s;
     ctx.fillText('GO!', view.w / 2, view.h * 0.42); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
-  let my = view.h * 0.3;
+  let my = view.h * 0.36;
   for (const m of race.msgs) {
     if (m.view !== car.view) continue;
     ctx.globalAlpha = clamp(m.t / 0.4, 0, 1);
@@ -1891,7 +2019,7 @@ function botCars(count, startColor, skillBase) {
 function buildLocalCfg(mode) {
   const s = settings, skill = DIFFS[s.diff].skill;
   let cars;
-  if (mode === 'trial') cars = [{ id: 'p1', name: myName(), color: COLORS[0], ctrl: 'human', keymap: 'solo', pad: 0, view: 0 }];
+  if (mode === 'trial' || mode === 'drift') cars = [{ id: 'p1', name: myName(), color: COLORS[0], ctrl: 'human', keymap: 'solo', pad: 0, view: 0 }];
   else if (mode === 'split') {
     cars = [
       { id: 'p1', name: 'Player 1', color: COLORS[0], ctrl: 'human', keymap: 'p1', pad: 0, view: 0 },
@@ -1899,7 +2027,7 @@ function buildLocalCfg(mode) {
     ].concat(botCars(s.bots, 2, skill));
   } else cars = [{ id: 'p1', name: myName(), color: COLORS[0], ctrl: 'human', keymap: 'solo', pad: 0, view: 0 }].concat(botCars(s.bots, 1, skill));
   if (mode !== 'trial') cars = cars.slice(0, 6);
-  return { mode, track: s.track, laps: mode === 'trial' ? 5 : s.laps, cars };
+  return { mode, track: s.track, laps: mode === 'trial' ? 5 : mode === 'drift' ? 99 : s.laps, cars };
 }
 
 function startRace(cfg) {
@@ -1936,9 +2064,9 @@ function showResults() {
   if (!race) return;
   race.state = 'done';
   const online = race.mode === 'online';
-  $('res-title').textContent = race.mode === 'trial' ? 'Time Trial' : 'Results';
+  $('res-title').textContent = race.mode === 'trial' ? 'Time Trial' : race.mode === 'drift' ? 'Drift Challenge' : 'Results';
   $('res-again').style.display = online && !net.isHost() ? 'none' : '';
-  $('res-again').textContent = online ? 'Back to lobby' : 'Race again';
+  $('res-again').textContent = online ? 'Back to lobby' : race.mode === 'drift' ? 'Try again' : 'Race again';
   $('res-menu').textContent = online ? 'Leave room' : 'Menu';
   $('res-note').textContent = online && !net.isHost() ? 'Waiting for the host…' : '';
   fillResults();
@@ -1947,12 +2075,18 @@ function showResults() {
 function fillResults() {
   if (!race) return;
   const rows = race.standings();
-  let html = '<tr><th>Pos</th><th>Driver</th><th>Time</th><th>Best lap</th></tr>';
+  let html = '<tr><th>Pos</th><th>Driver</th><th>Time</th><th>Best lap</th><th>Drift pts</th></tr>';
   rows.forEach((c, i) => {
     const me = c.view >= 0 || (race.mode === 'online' && c.id === net.myId());
     html += `<tr class="${me ? 'me' : ''}"><td>${ordinal(i + 1)}</td><td style="color:${c.color}">${escapeHtml(c.name)}</td>` +
-      `<td>${c.finished ? fmtTime(c.finishTime) : '<span class="muted">racing…</span>'}</td><td>${fmtTime(c.bestLap)}</td></tr>`;
+      `<td>${c.finished ? fmtTime(c.finishTime) : '<span class="muted">racing…</span>'}</td><td>${fmtTime(c.bestLap)}</td><td>${c.view >= 0 ? c.driftScore.toLocaleString() : '–'}</td></tr>`;
   });
+  if (race.mode === 'drift') {
+    const c = race.cars[0], best = store.get('drift.' + race.track.def.id, 0);
+    html = '<tr><th></th><th>Drift score</th><th>Your best here</th></tr>' +
+      `<tr class="me"><td>${escapeHtml(c.name)}</td><td style="font-size:30px">${c.driftScore.toLocaleString()}</td><td>${best.toLocaleString()}</td></tr>`;
+    $('res-note').textContent = race.newBest ? 'New best score!' : c.driftScore === 0 ? 'Tip: hold Space and steer into a corner to start a drift.' : '';
+  }
   if (race.mode === 'trial') {
     const c = race.cars[0];
     html = '<tr><th>Lap</th><th></th><th>Best lap</th><th>Record</th></tr>' +
@@ -1990,9 +2124,17 @@ function buildSetup(mount, mode, editable, onChange) {
     d.append(minus, val, plus);
     opts.appendChild(d);
   };
-  if (mode !== 'trial') stepper('Laps', 'laps', 1, 9);
-  if (mode !== 'trial') stepper(mode === 'online' ? 'Bots' : 'Opponents', 'bots', 0, mode === 'split' ? 4 : 5);
-  if (mode !== 'trial') {
+  const solo = mode === 'trial' || mode === 'drift';
+  if (!solo) stepper('Laps', 'laps', 1, 9);
+  if (!solo) stepper(mode === 'online' ? 'Bots' : 'Opponents', 'bots', 0, mode === 'split' ? 4 : 5);
+  if (mode === 'drift') {
+    const best = store.get('drift.' + settings.track, 0);
+    const p = document.createElement('div'); p.className = 'muted';
+    p.innerHTML = `Drift as much as you can in ${DRIFT_TIME} seconds. Hold <b>Space</b> and steer into corners, and chain drifts for a combo.` +
+      (best ? `<br>Your best here: <b style="color:var(--gold)">${best.toLocaleString()}</b>` : '');
+    opts.appendChild(p);
+  }
+  if (!solo) {
     const d = document.createElement('div'); d.className = 'opt seg'; d.innerHTML = '<span>AI</span>';
     DIFFS.forEach((df, i) => {
       const b = document.createElement('button'); b.textContent = df.name; b.className = settings.diff === i ? 'on' : '';
@@ -2018,7 +2160,7 @@ document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('clic
   const m = b.dataset.mode;
   if (m === 'online') { $('online-err').textContent = ''; show('scr-online'); return; }
   setupMode = m;
-  $('setup-title').textContent = { race: 'Race', trial: 'Time Trial', split: 'Split Screen' }[m];
+  $('setup-title').textContent = { race: 'Race', trial: 'Time Trial', split: 'Split Screen', drift: 'Drift Challenge' }[m];
   buildSetup($('setup-mount'), m, true);
   show('scr-setup');
 }));

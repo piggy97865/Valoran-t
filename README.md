@@ -19,7 +19,11 @@ Each game is a single page with no build step. Open its `index.html` in a deskto
 - **Split Screen** for two players on one keyboard (WASD and arrow keys), or with two gamepads.
 - **Online** races with up to 6 cars. Bots can fill the empty spots.
 
-Drift with Space to fill your boost meter, then press Shift to boost. The yellow arrows on the track give a free boost. Press C to switch between the chase, far and hood cameras (player 2 uses the `.` key).
+Drifting is the heart of the game. Hold Space and steer into a corner to slide sideways while keeping your speed; steer into the drift to tighten it or away to widen it. The longer you hold a drift, the bigger the speed boost when you let go (the sparks turn blue, then orange, then purple). Drifts score points, chaining them builds a combo multiplier, and hitting a wall mid-drift loses that drift's points.
+
+- **Drift Challenge**: score as many drift points as you can in 90 seconds. Your best score is saved for each track.
+
+Drifting also fills your boost meter; press Shift to use it. The yellow arrows on the track give a free boost. Press C to switch between the chase, far and hood cameras (player 2 uses the `.` key).
 
 The 3D graphics use [three.js](https://threejs.org) (MIT, included in `shared/three.min.js`). They need a browser with WebGL, which almost every modern browser has.
 

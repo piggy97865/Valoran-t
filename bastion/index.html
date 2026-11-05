@@ -307,6 +307,18 @@ const ENEMIES = {
   jelly: { name: 'Jelly King', hp: 1700, speed: 0.5, armor: 0, bounty: 250, size: 27, color: '#ff7ad9', boss: true, special: true, leak: 8 },
   jellyling: { name: 'Jellyling', hp: 70, speed: 1.6, armor: 0, bounty: 3, size: 9, color: '#ff9ae4' },
   shield: { name: 'Shield Lord', hp: 2000, speed: 0.5, armor: 4, bounty: 300, size: 26, color: '#4a8cff', boss: true, special: true, leak: 8 },
+  // Hardcore bosses
+  necro: { name: 'Necromancer', hp: 1100, speed: 0.55, armor: 2, bounty: 250, size: 22, color: '#3b2a4f', boss: true, special: true, leak: 8 },
+  bones: { name: 'Skeleton', hp: 55, speed: 1.35, armor: 0, bounty: 1, size: 10, color: '#e9e4d4' },
+  phantom: { name: 'Phantom', hp: 1200, speed: 0.8, armor: 0, bounty: 300, size: 22, color: '#9ff0ff', boss: true, special: true, leak: 5 },
+  // Hardcore-only enemies, each with a trick
+  blinker: { name: 'Blinker', hp: 70, speed: 1.4, armor: 0, bounty: 6, size: 10, color: '#b76bff', tip: 'teleports forward every few seconds. Slow it with Frost!' },
+  shellback: { name: 'Shellback', hp: 260, speed: 0.85, armor: 2, bounty: 12, size: 15, color: '#4f9a54', shell: true, tip: 'barely hurt by explosions, fire and poison. Use Bolt, Sniper or Railgun!' },
+  bomber: { name: 'Bomber', hp: 120, speed: 1.2, armor: 0, bounty: 8, size: 12, color: '#3a3a44', bomb: true, tip: 'explodes when it dies and freezes towers next to it. Kill it from far away!' },
+  stormwing: { name: 'Stormwing', hp: 90, speed: 2.1, armor: 0, bounty: 9, size: 11, color: '#ffd84a', flying: true, noSlow: true, tip: "a fast flyer that can't be slowed. Bring anti-air!" },
+  brood: { name: 'Broodmother', hp: 520, speed: 0.75, armor: 2, bounty: 20, size: 18, color: '#7a5236', tip: 'keeps spawning swarms. Splash damage clears them up!' },
+  rager: { name: 'Rager', hp: 160, speed: 1.1, armor: 1, bounty: 9, size: 13, color: '#ff7a2e', tip: 'gets much faster when hurt. Finish it with big hits!' },
+  titan: { name: 'Colossus', hp: 3200, speed: 0.38, armor: 0, bounty: 800, size: 34, color: '#7d8494', boss: true, special: true, leak: 10 },
   dragon: { name: 'Shadow Dragon', hp: 2300, speed: 0.7, armor: 3, bounty: 350, size: 28, color: '#7a3cc0', boss: true, special: true, flying: true, leak: 8 },
 };
 const ENEMY_TYPES = Object.keys(ENEMIES);
@@ -314,20 +326,23 @@ const DIFFS = [
   { name: 'Easy', hp: 0.45, speed: 0.85, lives: 50, gold: 450, pause: 30 },
   { name: 'Medium', hp: 0.85, speed: 1, lives: 25, gold: 350, pause: 25 },
   { name: 'Hard', hp: 1.5, speed: 1.05, lives: 10, gold: 260, pause: 20 },
+  { name: 'Hardcore', hp: 1.0, speed: 1.0, lives: 15, gold: 320, pause: 20 },
 ];
 const FINAL_WAVE = 30;
-const SPECIAL_BOSS = ['jelly', 'shield', 'dragon']; // Easy, Medium, Hard
+const AREA_TOWERS = new Set(['cannon', 'mortar', 'poison', 'flame']);
+const SPECIAL_BOSS = ['jelly', 'shield', 'dragon', 'titan']; // Easy, Medium, Hard, Hardcore
 const BOUNTY_MULT = 1.5; // extra gold per kill
 const waveBonus = (n) => 40 + 5 * n;
 
-function waveGroups(n, diff) {
+function waveGroups(n, diff, np) {
   const G = [];
+  const coop = 1 + 0.25 * ((np || 1) - 1); // more enemies with more players
   // Endless (after wave 30): more enemies, packed closer together, every wave.
   const ef = n > FINAL_WAVE ? 1 + (n - FINAL_WAVE) * 0.08 : 1;
   const add = (type, count, gap, at) => {
     const boss = ENEMIES[type].boss;
-    count = Math.round(boss ? count : count * ef);
-    if (count > 0) G.push({ type, count, gap: boss ? gap : gap / Math.sqrt(ef), at });
+    count = Math.round(boss ? count : count * ef * coop);
+    if (count > 0) G.push({ type, count, gap: boss ? gap : gap / Math.sqrt(ef * coop), at });
   };
   const early = {
     1: [['grunt', 8, 1.1, 0]],
@@ -336,7 +351,17 @@ function waveGroups(n, diff) {
     4: [['grunt', 10, 0.8, 0], ['brute', 2, 3, 5]],
     5: [['scout', 8, 0.5, 0], ['grunt', 10, 0.7, 3], ['brute', 2, 2.5, 8]],
   };
-  if (early[n]) { early[n].forEach((a) => add(...a)); return G; }
+  const hardcoreExtras = (start) => {
+    let at2 = start;
+    if (n >= 2 && n % 3 === 2) add('blinker', 3 + n / 3, 0.8, (at2 += 2));
+    if (n >= 3 && n % 4 === 3) add('rager', 3 + n / 4, 0.9, (at2 += 2));
+    if (n >= 4 && n % 4 === 0) add('shellback', 2 + n / 5, 1.6, (at2 += 2));
+    if (n >= 6 && n % 3 === 0) add('bomber', 2 + n / 6, 1.2, (at2 += 2));
+    if (n >= 7 && n % 4 === 1) add('stormwing', 3 + n / 4, 0.7, (at2 += 2));
+    if (n >= 9 && n % 5 === 4) add('brood', 1 + Math.floor(n / 12), 4, (at2 += 3));
+    return at2;
+  };
+  if (early[n]) { early[n].forEach((a) => add(...a)); if (diff === 3) hardcoreExtras(4); return G; }
   let at = 0;
   add('grunt', 6 + n * 0.7, Math.max(0.35, 0.9 - n * 0.015), at); at += 3;
   if (n % 2 === 0) add('scout', 4 + n * 0.5, 0.45, (at += 2));
@@ -346,13 +371,24 @@ function waveGroups(n, diff) {
   if (n >= 8) add('splitter', Math.floor(n / 4), 1.6, (at += 3));
   if (n >= 6 && n % 4 === 2) add('wisp', 3 + Math.floor(n / 3), 0.8, (at += 2));
   if (n >= 11 && n % 4 === 0) add('wisp', 2 + Math.floor(n / 4), 0.9, (at += 2));
+  if (diff === 3) at = hardcoreExtras(at);
   const special = SPECIAL_BOSS[diff || 0];
-  if (n < FINAL_WAVE) { if (n % 10 === 0) add('boss', Math.floor(n / 10), 6, (at += 4)); }
+  if (diff === 3 && n <= FINAL_WAVE) {
+    // Hardcore boss fights
+    if (n === 5) add('boss', 1, 1, (at += 4));
+    if (n === 10) add('necro', 1, 1, (at += 4));
+    if (n === 15) add('boss', 2, 5, (at += 4));
+    if (n === 20) add('phantom', 1, 1, (at += 4));
+    if (n === 25) { add('necro', 1, 1, (at += 3)); add('phantom', 1, 1, (at += 6)); }
+    if (n === FINAL_WAVE) { add('shield', 1, 1, (at += 3)); add('dragon', 1, 1, (at += 6)); add('titan', 1, 1, (at += 8)); }
+  }
+  else if (n < FINAL_WAVE) { if (n % 10 === 0) add('boss', Math.floor(n / 10), 6, (at += 4)); }
   else if (n === FINAL_WAVE) { add('boss', 2, 6, (at += 4)); add(special, 1, 1, (at += 8)); }
   else {
     if (n >= 40 && n % 4 === 0) add('dragon', 1, 1, (at += 3));
     if (n % 5 === 0) add('boss', 1 + Math.floor((n - FINAL_WAVE) / 10), 4, (at += 4));
     if (n % 10 === 0) add(special, Math.floor((n - 20) / 10), 8, (at += 6));
+    if (diff === 3 && n % 10 === 5) { add('necro', 1, 1, (at += 3)); add('phantom', 1, 1, (at += 5)); }
   }
   return G;
 }
@@ -408,7 +444,7 @@ class Sim {
     this.D = DIFFS[diff];
     this.players = players.map((p) => ({ id: p.id, name: p.name, color: p.color }));
     this.gold = {};
-    const coopGold = this.players.length > 1 ? Math.round(this.D.gold * 0.85) : this.D.gold;
+    const coopGold = this.players.length > 1 ? Math.round(this.D.gold * 0.75) : this.D.gold;
     for (const p of this.players) this.gold[p.id] = coopGold;
     this.lives = this.D.lives;
     this.wave = 0;
@@ -419,6 +455,8 @@ class Sim {
     this.towers = [];
     this.projectiles = [];
     this.clouds = [];
+    this.graves = [];
+    this.seen = new Set();
     this.uid = 1;
     this.events = [];
     this.state = 'play'; // play | won | lost
@@ -431,7 +469,7 @@ class Sim {
     this.kills = 0;
   }
   fx(e) { this.events.push(e); }
-  coopHp() { return 1 + 0.6 * (this.players.length - 1); }
+  coopHp() { return 1 + 0.9 * (this.players.length - 1); }
   canCallWave() { return this.state === 'play' && (this.wave === 0 || this.next != null || this.queue.length === 0); }
   callWave(byPlayer) {
     if (!this.canCallWave()) return 'Wait until the current wave has finished arriving.';
@@ -441,7 +479,7 @@ class Sim {
     if (bonus) for (const p of this.players) this.gold[p.id] += bonus;
     this.wave++;
     this.next = null;
-    const groups = waveGroups(this.wave, this.diff);
+    const groups = waveGroups(this.wave, this.diff, this.players.length);
     const base = this.queue.length ? this.queue[this.queue.length - 1].t : this.waveT;
     for (const g of groups) for (let k = 0; k < g.count; k++) this.queue.push({ t: base + g.at + k * g.gap, type: g.type, wave: this.wave });
     this.queue.sort((a, b) => a.t - b.t);
@@ -459,6 +497,12 @@ class Sim {
     if (type === 'jelly') e.splits = [0.75, 0.5, 0.25];
     if (type === 'shield') { e.shieldMax = e.shield = Math.round(hp * 0.35); e.shieldT = 0; }
     if (type === 'dragon') { e.roarT = 4; e.baseSpeed = e.speed; }
+    if (type === 'necro') e.raiseT = 3;
+    if (type === 'blinker') e.blinkT = 2 + Math.random() * 1.5;
+    if (type === 'brood') e.broodT = 3;
+    if (E.tip && !this.seen.has(type)) { this.seen.add(type); this.fx({ e: 'intro', type }); }
+    if (type === 'phantom') { e.phaseT = 5; e.hidden = false; }
+    if (type === 'titan') { e.phase = 0; e.armor = 10; e.stompT = 6; e.baseSpeed = e.speed; }
     this.placeEnemy(e);
     this.enemies.push(e);
     return e;
@@ -527,6 +571,48 @@ class Sim {
           this.fx({ e: 'roar', x: e.x | 0, y: e.y | 0, r });
         }
       }
+      if (e.type === 'blinker' && (e.blinkT -= dt) <= 0) {
+        e.blinkT = 3;
+        this.fx({ e: 'blinkS', x: e.x | 0, y: e.y | 0 });
+        e.dist = Math.min(this.pathOf(e).total - 10, e.dist + 1.6 * T);
+        this.placeEnemy(e);
+      }
+      if (e.type === 'brood' && (e.broodT -= dt) <= 0) {
+        e.broodT = 4;
+        for (let k = 0; k < 3; k++) this.spawn('swarm', this.wave, e.path, Math.max(0, e.dist - 8 - k * 9));
+      }
+      if (e.type === 'rager' && !e.enraged && e.hp < e.maxHp * 0.5) { e.enraged = true; e.speed *= 1.8; this.fx({ e: 'rage', x: e.x | 0, y: e.y | 0 }); }
+      if (e.type === 'necro' && (e.raiseT -= dt) <= 0) {
+        e.raiseT = 4.5;
+        const raised = this.graves.splice(0, 4);
+        for (const g of raised) {
+          const sk = this.spawn('bones', this.wave, g.path, Math.max(0, g.dist));
+          this.fx({ e: 'raise', x: sk.x | 0, y: sk.y | 0 });
+        }
+        if (raised.length) this.fx({ e: 'raise', x: e.x | 0, y: e.y | 0, big: 1 });
+      }
+      if (e.type === 'phantom' && (e.phaseT -= dt) <= 0) {
+        if (e.hidden) {
+          e.hidden = false; e.phaseT = 6;
+          e.dist = Math.min(this.pathOf(e).total - 40, e.dist + 3 * T);
+          this.placeEnemy(e);
+          this.fx({ e: 'blink', x: e.x | 0, y: e.y | 0 });
+        } else { e.hidden = true; e.phaseT = 2.5; this.fx({ e: 'vanish', x: e.x | 0, y: e.y | 0 }); }
+      }
+      if (e.type === 'titan') {
+        const f = e.hp / e.maxHp, ph = f > 0.66 ? 0 : f > 0.33 ? 1 : 2;
+        if (ph > e.phase) {
+          e.phase = ph; e.armor = [10, 5, 0][ph]; e.speed = e.baseSpeed * [1, 1.35, 1.9][ph];
+          this.fx({ e: 'armorbreak', x: e.x | 0, y: e.y | 0, ph });
+        }
+        if ((e.stompT -= dt) <= 0) {
+          e.stompT = e.phase === 2 ? 5 : 7;
+          const r = 3 * T;
+          for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = 2.5;
+          for (let k = 0; k < 2; k++) this.spawn('brute', this.wave, e.path, Math.max(0, e.dist - 20 - k * 15));
+          this.fx({ e: 'stomp', x: e.x | 0, y: e.y | 0, r });
+        }
+      }
       if (e.type === 'boss' && (e.summonT -= dt) <= 0) {
         e.summonT = 7;
         for (let k = 0; k < 2; k++) this.spawn('swarm', this.wave, e.path, Math.max(0, e.dist - 10 - k * 12));
@@ -584,7 +670,7 @@ class Sim {
     const air = TOWERS[tw.kind].air;
     const list = [];
     for (const e of this.enemies) {
-      if (e.flying && !air) continue;
+      if ((e.flying && !air) || e.hidden) continue;
       const d2 = (e.x - tw.x) ** 2 + (e.y - tw.y) ** 2;
       if (d2 > r * r || (minR && d2 < minR * minR)) continue;
       list.push([e, d2]);
@@ -639,7 +725,7 @@ class Sim {
       if (!hits.length) return;
       tw.cd = D.rate[L];
       for (const e of hits) {
-        if (e.slowAmt <= D.slow[L]) { e.slowAmt = D.slow[L] * (e.type === 'boss' ? 0.75 : 1); e.slowT = 1.6; }
+        if (!ENEMIES[e.type].noSlow && e.slowAmt <= D.slow[L]) { e.slowAmt = D.slow[L] * (e.type === 'boss' ? 0.75 : 1); e.slowT = 1.6; }
         this.damage(e, D.dmg[L], tw);
       }
       this.fx({ e: 'frost', x: tw.x, y: tw.y, r: Math.round(r) });
@@ -733,7 +819,7 @@ class Sim {
         dmg *= 0.85;
         let best = null, bd = (1.7 * T) ** 2;
         for (const o of this.enemies) {
-          if (hit.has(o.id) || o.hp <= 0) continue;
+          if (hit.has(o.id) || o.hp <= 0 || o.hidden) continue;
           const d2 = (o.x - cur.x) ** 2 + (o.y - cur.y) ** 2;
           if (d2 < bd) { bd = d2; best = o; }
         }
@@ -792,8 +878,9 @@ class Sim {
     this.fx({ e: 'boom', x: x | 0, y: y | 0, r: Math.round(rad), big: big ? 1 : 0 });
   }
   damage(e, dmg, tw, pierce, raw) {
-    if (e.hp <= 0) return;
+    if (e.hp <= 0 || e.hidden) return;
     if (tw && tw.buff && !raw) dmg *= tw.buff;
+    if (ENEMIES[e.type].shell && tw && AREA_TOWERS.has(tw.kind)) dmg *= 0.25;
     if (e.shieldMax) {
       e.shieldT = 0;
       if (e.shield > 0) {
@@ -822,6 +909,15 @@ class Sim {
     for (const p of this.players) this.gold[p.id] += bounty;
     this.fx({ e: 'die', x: e.x | 0, y: e.y | 0, type: e.type, b: bounty });
     if (e.type === 'jelly') this.jellyBurst(e, 5);
+    if (ENEMIES[e.type].bomb) {
+      const r = 1.6 * T;
+      for (const t of this.towers) if ((t.x - e.x) ** 2 + (t.y - e.y) ** 2 <= r * r) t.stun = Math.max(t.stun || 0, 2);
+      this.fx({ e: 'boom', x: e.x | 0, y: e.y | 0, r: Math.round(r), big: 1 });
+    }
+    if (!ENEMIES[e.type].boss && e.type !== 'bones' && !e.flying && this.enemies.some((o) => o.type === 'necro')) {
+      this.graves.push({ path: e.path, dist: e.dist });
+      if (this.graves.length > 12) this.graves.shift();
+    }
     if (e.type === 'splitter') {
       for (const k of [-1, 1]) {
         const m = this.spawn('mini', this.wave, e.path, Math.max(0, e.dist + k * 8));
@@ -1240,6 +1336,100 @@ function drawEnemy(c, e, t) {
       }
       break;
     }
+    case 'blinker': {
+      for (let k = 2; k >= 1; k--) {
+        c.globalAlpha = 0.18 * k; c.save(); c.translate(-Math.cos(a) * k * 7, -Math.sin(a) * k * 7);
+        c.beginPath(); c.moveTo(0, -s); c.lineTo(s, 0); c.lineTo(0, s); c.lineTo(-s, 0); c.closePath(); c.fill(); c.restore();
+      }
+      c.globalAlpha = 1;
+      c.beginPath(); c.moveTo(0, -s * 1.2); c.lineTo(s * 1.1, 0); c.lineTo(0, s * 1.2); c.lineTo(-s * 1.1, 0); c.closePath(); c.fill(); c.stroke();
+      break;
+    }
+    case 'shellback': {
+      c.fillStyle = flash ? '#fff' : '#8fbf6a';
+      c.beginPath(); c.arc(Math.cos(a) * s * 0.95, Math.sin(a) * s * 0.95, s * 0.4, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = flash ? '#fff' : col; c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.stroke();
+      c.strokeStyle = 'rgba(20,50,20,0.55)'; c.lineWidth = 1.5;
+      for (let k = 0; k < 6; k++) { const ang = (k / 6) * TAU; c.beginPath(); c.moveTo(Math.cos(ang) * s * 0.45, Math.sin(ang) * s * 0.45); c.lineTo(Math.cos(ang) * s, Math.sin(ang) * s); c.stroke(); }
+      c.beginPath(); c.arc(0, 0, s * 0.45, 0, TAU); c.stroke();
+      break;
+    }
+    case 'bomber': {
+      c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = '#e8303a'; c.fillRect(-s, -2.5, s * 2, 5);
+      c.strokeStyle = '#a07a50'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -s); c.quadraticCurveTo(5, -s - 6, 3, -s - 10); c.stroke();
+      c.fillStyle = (t * 8) % 2 < 1 ? '#ffd84a' : '#ff7a2e'; c.beginPath(); c.arc(3, -s - 11, 3, 0, TAU); c.fill();
+      break;
+    }
+    case 'stormwing': {
+      c.rotate(a);
+      const fl = Math.sin(t * 14 + e.id) * 0.4;
+      c.beginPath(); c.moveTo(s * 1.3, 0); c.lineTo(-s * 0.4, -s * (1.2 + fl)); c.lineTo(-s * 0.1, 0); c.lineTo(-s * 0.4, s * (1.2 + fl)); c.closePath(); c.fill(); c.stroke();
+      c.strokeStyle = '#fff6b0'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-s * 0.9, -3); c.lineTo(-s * 0.4, 1); c.lineTo(-s * 1.1, 4); c.stroke();
+      c.rotate(-a);
+      break;
+    }
+    case 'brood': {
+      c.strokeStyle = 'rgba(40,25,15,0.9)'; c.lineWidth = 2.5;
+      for (let k = 0; k < 4; k++) for (const sd of [-1, 1]) {
+        const la = a + sd * (0.6 + k * 0.45), w = Math.sin(t * 10 + k + (sd > 0 ? 1 : 0)) * 0.15;
+        c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(la + w) * s * 1.6, Math.sin(la + w) * s * 1.6); c.stroke();
+      }
+      c.strokeStyle = 'rgba(0,0,0,0.45)'; c.lineWidth = 2;
+      c.beginPath(); c.ellipse(0, 0, s, s * 0.85, a, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = '#c99a5a'; c.beginPath(); c.arc(-Math.cos(a) * s * 0.3, -Math.sin(a) * s * 0.3, s * 0.35, 0, TAU); c.fill();
+      break;
+    }
+    case 'rager': {
+      const raging = e.enraged || e.rage;
+      c.fillStyle = flash ? '#fff' : raging ? '#ff3b2f' : col;
+      c.beginPath();
+      for (let k = 0; k < 16; k++) { const ang = (k / 16) * TAU + t * (raging ? 6 : 1), r2 = k % 2 ? s * 0.75 : s * 1.15; c.lineTo(Math.cos(ang) * r2, Math.sin(ang) * r2); }
+      c.closePath(); c.fill(); c.stroke();
+      break;
+    }
+    case 'necro': {
+      c.beginPath(); c.moveTo(0, -s * 1.2); c.lineTo(s, s); c.lineTo(-s, s); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#1a1024'; c.beginPath(); c.arc(0, -s * 0.35, s * 0.45, 0, TAU); c.fill();
+      c.fillStyle = '#7dff8a'; for (const sd of [-1, 1]) { c.beginPath(); c.arc(sd * 4, -s * 0.38, 2.4, 0, TAU); c.fill(); }
+      const oa = t * 2.5 + e.id;
+      c.fillStyle = 'rgba(125,255,140,0.35)'; c.beginPath(); c.arc(Math.cos(oa) * (s + 8), Math.sin(oa) * (s + 8), 8, 0, TAU); c.fill();
+      c.fillStyle = '#9dffaa'; c.beginPath(); c.arc(Math.cos(oa) * (s + 8), Math.sin(oa) * (s + 8), 4, 0, TAU); c.fill();
+      break;
+    }
+    case 'bones': {
+      c.beginPath(); c.arc(0, -1, s, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = '#2a2420'; for (const sd of [-1, 1]) { c.beginPath(); c.arc(sd * 3.5, -2, 2.6, 0, TAU); c.fill(); }
+      c.fillRect(-3, 4, 6, 2);
+      break;
+    }
+    case 'phantom': {
+      const hid = e.hidden || e.hid;
+      c.globalAlpha = hid ? 0.18 : 0.75 + Math.sin(t * 12) * 0.1;
+      c.rotate(a);
+      c.beginPath(); c.arc(s * 0.3, 0, s, -Math.PI / 2, Math.PI / 2);
+      for (let k = 0; k <= 6; k++) c.lineTo(s * 0.3 - s * 0.4 - k * 5, (k % 2 ? -1 : 1) * s * (1 - k / 7) * 0.8 + Math.sin(t * 8 + k) * 2);
+      c.closePath(); c.fill();
+      if (hid) { c.setLineDash([4, 4]); c.strokeStyle = 'rgba(190,245,255,0.8)'; c.stroke(); c.setLineDash([]); }
+      c.fillStyle = '#0b3a48'; for (const sd of [-1, 1]) { c.beginPath(); c.ellipse(s * 0.6, sd * 5, 3, 4.5, 0, 0, TAU); c.fill(); }
+      c.rotate(-a);
+      c.globalAlpha = 1;
+      break;
+    }
+    case 'titan': {
+      const ph = e.phase != null ? e.phase : e.hp / e.maxHp > 0.66 ? 0 : e.hp / e.maxHp > 0.33 ? 1 : 2;
+      c.beginPath(); c.roundRect(-s, -s, s * 2, s * 2, 12); c.fill(); c.lineWidth = 3; c.stroke();
+      c.strokeStyle = 'rgba(30,30,30,0.5)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(-s * 0.6, -s * 0.8); c.lineTo(-s * 0.2, -s * 0.2); c.lineTo(-s * 0.5, s * 0.4); c.moveTo(s * 0.5, -s * 0.5); c.lineTo(s * 0.2, s * 0.6); c.stroke();
+      if (ph < 2) { // armor plates
+        c.fillStyle = flash ? '#fff' : '#b8b0a0'; c.strokeStyle = '#4a4438'; c.lineWidth = 2;
+        const plates = ph === 0 ? [[-s, -s], [s * 0.15, -s], [-s, s * 0.15], [s * 0.15, s * 0.15]] : [[-s, -s], [s * 0.15, s * 0.15]];
+        for (const [px, py] of plates) { c.beginPath(); c.roundRect(px + 2, py + 2, s * 0.8, s * 0.8, 5); c.fill(); c.stroke(); }
+      }
+      const glow = ph === 2 ? '#ff3b2f' : '#ffa53d';
+      c.fillStyle = glow; for (const sd of [-1, 1]) { c.beginPath(); c.arc(Math.cos(a) * s * 0.5 - Math.sin(a) * sd * 9, Math.sin(a) * s * 0.5 + Math.cos(a) * sd * 9, 4, 0, TAU); c.fill(); }
+      break;
+    }
     case 'dragon': {
       c.rotate(a);
       const flap = Math.sin(t * 8 + e.id) * 0.5;
@@ -1259,7 +1449,7 @@ function drawEnemy(c, e, t) {
     default: { c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.stroke(); }
   }
   // Eyes
-  if (!['healer', 'swarm', 'jelly', 'jellyling', 'dragon'].includes(e.type)) {
+  if (!['healer', 'swarm', 'jelly', 'jellyling', 'dragon', 'necro', 'bones', 'phantom', 'titan'].includes(e.type)) {
     const ex = Math.cos(a) * s * 0.35, ey = Math.sin(a) * s * 0.35, px = -Math.sin(a) * s * 0.32, py = Math.cos(a) * s * 0.32;
     const er = Math.max(2, s * 0.22);
     for (const k of [-1, 1]) {
@@ -1328,6 +1518,14 @@ function addFx(e, view) {
     case 'enrage': effects.push({ k: 'text', x: e.x, y: e.y - 44, text: 'ENRAGED!', t: 0, T: 1.4, col: '#ff4a6a' }); break;
     case 'shieldbreak': effects.push({ k: 'ring', x: e.x, y: e.y, r: 40, t: 0, T: 0.5, col: '120,180,255' }); effects.push({ k: 'text', x: e.x, y: e.y - 40, text: 'SHIELD BROKEN!', t: 0, T: 1.2, col: '#8fc4ff' }); Sound.play('pop'); break;
     case 'shieldup': effects.push({ k: 'text', x: e.x, y: e.y - 40, text: 'Shield back up!', t: 0, T: 1.2, col: '#8fc4ff' }); break;
+    case 'blinkS': effects.push({ k: 'ring', x: e.x, y: e.y, r: 16, t: 0, T: 0.35, col: '183,107,255' }); break;
+    case 'rage': effects.push({ k: 'text', x: e.x, y: e.y - 20, text: 'RAGE!', t: 0, T: 0.9, col: '#ff7a2e' }); break;
+    case 'intro': { const E = ENEMIES[e.type]; introToast(E.name, E.tip, E.color); break; }
+    case 'raise': effects.push({ k: 'ring', x: e.x, y: e.y, r: e.big ? 50 : 18, t: 0, T: 0.6, col: '120,255,140', fill: true }); if (e.big) { effects.push({ k: 'text', x: e.x, y: e.y - 36, text: 'RISE!', t: 0, T: 1, col: '#8dff9a' }); Sound.play('boss'); } break;
+    case 'vanish': effects.push({ k: 'ring', x: e.x, y: e.y, r: 34, t: 0, T: 0.5, col: '160,240,255' }); effects.push({ k: 'text', x: e.x, y: e.y - 34, text: 'Vanished!', t: 0, T: 1, col: '#bff4ff' }); break;
+    case 'blink': effects.push({ k: 'ring', x: e.x, y: e.y, r: 40, t: 0, T: 0.5, col: '160,240,255', fill: true }); Sound.play('zap'); break;
+    case 'stomp': effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.8, col: '200,170,120', fill: true }); effects.push({ k: 'text', x: e.x, y: e.y - 50, text: 'STOMP!', t: 0, T: 1, col: '#ffd8a0' }); Sound.play('boom'); break;
+    case 'armorbreak': effects.push({ k: 'ring', x: e.x, y: e.y, r: 60, t: 0, T: 0.7, col: '255,160,60' }); effects.push({ k: 'text', x: e.x, y: e.y - 54, text: e.ph === 2 ? 'ARMOR SHATTERED! IT\'S ANGRY!' : 'ARMOR CRACKED!', t: 0, T: 1.6, col: '#ffb060' }); Sound.play('boom'); break;
     case 'splat2': effects.push({ k: 'ring', x: e.x, y: e.y, r: 36, t: 0, T: 0.4, col: '255,122,217' }); Sound.play('splat'); break;
     case 'cleared': banner('Wave ' + e.n + ' cleared', '+' + e.bonus + ' gold'); Sound.play('clear'); break;
     case 'gift': {
@@ -1610,6 +1808,12 @@ function banner(title, sub) {
   b.classList.add('show');
   clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('show'), 2200);
 }
+function introToast(name, tip, color) {
+  const t = $('toast');
+  t.innerHTML = `<b style="color:${color}">New enemy: ${escapeHtml(name)}</b>: ${escapeHtml(tip)}`;
+  t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 5000);
+}
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
@@ -1774,7 +1978,8 @@ function render(dt) {
       const E = ENEMIES[boss.type], w = 420, x = WW / 2 - w / 2, y = 12, f = clamp(boss.hp / boss.maxHp, 0, 1);
       ctx.fillStyle = 'rgba(10,12,18,0.75)'; ctx.beginPath(); ctx.roundRect(x - 10, y - 4, w + 20, 40, 10); ctx.fill();
       ctx.font = '15px "Lilita One", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : ''), WW / 2, y + 13);
+      const ph = boss.type === 'titan' ? (boss.hp / boss.maxHp > 0.66 ? ' · Armor 2/2' : boss.hp / boss.maxHp > 0.33 ? ' · Armor 1/2' : ' · ARMOR BROKEN') : '';
+      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : '') + (boss.hidden || boss.hid ? ' (invisible)' : '') + ph, WW / 2, y + 13);
       ctx.fillStyle = '#3a1e24'; ctx.fillRect(x, y + 19, w, 10);
       ctx.fillStyle = E.color; ctx.fillRect(x, y + 19, w * f, 10);
       const sf = boss.shieldMax ? boss.shield / boss.shieldMax : boss.shieldF || 0;
@@ -1860,9 +2065,10 @@ function buildSetup(mount, editable, onChange) {
   mount.appendChild(grid);
   const o = document.createElement('div'); o.className = 'opts';
   o.innerHTML = '<span>Difficulty</span>';
-  const seg = document.createElement('div'); seg.className = 'seg'; seg.style.minWidth = '300px';
+  const seg = document.createElement('div'); seg.className = 'seg'; seg.style.minWidth = '420px';
   DIFFS.forEach((d, i) => {
-    const b = document.createElement('button'); b.textContent = `${d.name} · ${d.lives}♥`; b.className = settings.diff === i ? 'on' : ''; b.disabled = !editable;
+    const b = document.createElement('button'); b.textContent = (i === 3 ? '💀 ' : '') + `${d.name} · ${d.lives}♥`; b.className = settings.diff === i ? 'on' : ''; b.disabled = !editable;
+    if (i === 3) { b.style.color = '#ff8a8a'; b.title = 'Like Hard, but with its own boss fights: Necromancer, Phantom and the Colossus.'; }
     b.onclick = () => { settings.diff = i; save(); seg.querySelectorAll('button').forEach((x, j) => x.classList.toggle('on', j === i)); };
     seg.appendChild(b);
   });
@@ -2052,7 +2258,7 @@ const net = {
       t: 'snap',
       st: [s.wave, s.lives, s.state, s.next == null ? -1 : +s.next.toFixed(1), s.speed, s.paused ? 1 : 0, s.canCallWave() ? 1 : 0, s.endless ? 1 : 0],
       gold: s.gold,
-      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0) | (e.enraged ? 4 : 0), +e.a.toFixed(2), e.shieldMax ? Math.round((e.shield / e.shieldMax) * 100) : 0]),
+      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0) | (e.enraged ? 4 : 0) | (e.hidden ? 8 : 0), +e.a.toFixed(2), e.shieldMax ? Math.round((e.shield / e.shieldMax) * 100) : 0]),
       p: s.projectiles.map((p) => [p.id, PROJ_KINDS.indexOf(p.kind), Math.round(p.x), Math.round(p.y), Math.round(p.h || 0), +(p.a || 0).toFixed(2)]),
       tw: s.towers.map((t) => [t.id, TOWER_KINDS.indexOf(t.kind), t.tx, t.ty, t.level, pidx(t.owner), +t.angle.toFixed(2), t.mode, t.beam || 0, t.invested, t.kills || 0, Math.round((t.buff - 1) * 100), Math.round(t.dealt || 0), t.stun > 0 ? 1 : 0]),
       c: s.clouds.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.r), +(c.t / c.T).toFixed(2)]),
@@ -2120,7 +2326,7 @@ const net = {
     v.enemies = B.e.map((r) => {
       const o = pa.get(r[0]) || r;
       const type = ENEMY_TYPES[r[1]];
-      return { id: r[0], type, x: lerp(o[2], r[2], u), y: lerp(o[3], r[3], u), hp: r[4], maxHp: 1000, slow: r[5] & 1, burn: r[5] & 2, rage: r[5] & 4, a: r[6], shieldF: (r[7] || 0) / 100, hit: 0 };
+      return { id: r[0], type, x: lerp(o[2], r[2], u), y: lerp(o[3], r[3], u), hp: r[4], maxHp: 1000, slow: r[5] & 1, burn: r[5] & 2, rage: r[5] & 4, hid: r[5] & 8, a: r[6], shieldF: (r[7] || 0) / 100, hit: 0 };
     });
     const pp = new Map(A.p.map((r) => [r[0], r]));
     v.projectiles = B.p.map((r) => {

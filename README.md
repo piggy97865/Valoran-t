@@ -35,6 +35,8 @@ Grid tower defense: hold off 30 waves, then keep going in endless mode.
 - 9 enemy types, including armored Brutes, Healers, Splitters, flying Wisps that take a straight route, and a Warlord boss every 10 waves.
 - 3 maps and 3 difficulties: Easy, Medium and Hard.
 - Each difficulty has its own special boss at wave 30, which returns stronger every 10 waves in endless mode: the **Jelly King** (Easy) splits into jellies as it takes damage, the **Shield Lord** (Medium) has a shield that recharges if you stop hitting it, and the **Shadow Dragon** (Hard) flies and roars to freeze nearby towers, getting faster when badly hurt.
+- **Hardcore** (a 4th difficulty, 15 lives) uses normal enemy health but adds 6 unique enemies with tricks: Blinkers teleport forward, Shellbacks shrug off explosions/fire/poison, Bombers freeze nearby towers when they die, Stormwings are fast flyers that can't be slowed, Broodmothers spawn swarms and Ragers speed up when hurt. Its bosses are the Necromancer (raises fallen enemies as skeletons), the Phantom (turns invisible and teleports) and the Colossus (three layers of armor that crack off, stomps to freeze towers and calls Brutes), who arrives at wave 30 together with the Shield Lord and Shadow Dragon.
+- Co-op is harder than solo: enemies get more health and there are more of them for each extra player, and everyone starts with a bit less gold.
 - Endless mode (after wave 30) gets much harder every wave: more and faster enemies with more health, only 10 seconds between waves, and extra Shadow Dragons from wave 40.
 - **Online co-op** for up to 4 players. Everyone earns gold from every kill and builds their own towers. You can give gold to teammates and ping the map with F. Enemies get tougher as more players join.
 

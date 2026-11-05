@@ -27,9 +27,9 @@ The 3D graphics use [three.js](https://threejs.org) (MIT, included in `shared/th
 
 Grid tower defense: hold off 30 waves, then keep going in endless mode.
 
-- 6 towers (Bolt, Cannon, Frost, Tesla, Beam, Mortar), each with 4 levels and a choice of target.
+- 13 towers, each with 4 levels: Bolt, Cannon, Frost, Tesla, Beam, Mortar, Sniper, Flamer (sets enemies on fire), Poison (toxic clouds), Rocket (3× vs flyers), Railgun (hits everything in a line), Banner (boosts nearby towers) and Gold Mine (earns gold every wave).
 - 9 enemy types, including armored Brutes, Healers, Splitters, flying Wisps that take a straight route, and a Warlord boss every 10 waves.
-- 3 maps and 3 difficulties.
+- 3 maps and 3 difficulties: Easy, Medium and Hard.
 - **Online co-op** for up to 4 players. Everyone earns gold from every kill and builds their own towers. You can give gold to teammates and ping the map with F. Enemies get tougher as more players join.
 
 ### Online play

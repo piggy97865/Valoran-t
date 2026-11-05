@@ -111,6 +111,7 @@
   <div class="row">
     <label class="field">Name <input type="text" id="name" maxlength="14" placeholder="Racer"></label>
     <label class="field">Volume <input type="range" id="vol" min="0" max="100"></label>
+    <label class="field"><input type="checkbox" id="glow" style="accent-color:var(--pink);width:18px;height:18px"> Glow effects</label>
   </div>
   <div class="help panel" style="width:auto">
     <div><h3>Drive</h3><div class="keys">
@@ -400,7 +401,7 @@ function buildTrack(def) {
         const n = tr.nearest(bx + w / 2, by + h / 2);
         if (n.dist < WALL + Math.max(w, h) * 0.75) continue;
         const far = n.dist > 900;
-        blocks.push({ x: bx, y: by, w, h, hue: rnd() < 0.5 ? def.a : def.b, height: (far ? 260 : 90) + rnd() * (far ? 700 : 320) });
+        blocks.push({ x: bx, y: by, w, h, hue: rnd() < 0.5 ? def.a : def.b, height: (far ? 180 : 90) + rnd() * (far ? 420 : 300) });
       }
     }
     tr.blocks = blocks;
@@ -962,7 +963,7 @@ addEventListener('resize', resize);
 resize();
 
 const THEMES = {
-  city: { night: true, skyTop: 0x02030a, skyLow: 0x120d2e, fog: 0x0d0b24, fogNear: 1100, fogFar: 5600, ground: 0x0a0d18,
+  city: { night: true, skyTop: 0x030312, skyLow: 0x2b1150, fog: 0x1f0d3c, fogNear: 1300, fogFar: 6500, ground: 0x0a0d18,
     road: ['#1d2236', 'rgba(255,255,255,0.05)'], hemi: [0x7a6cff, 0x0a0a14, 0.75], sun: [0xc0b0ff, 0.45], skid: 0.45 },
   forest: { night: false, skyTop: 0x2f7fd6, skyLow: 0xcfe3f2, fog: 0xcfe3f2, fogNear: 1600, fogFar: 9500, ground: 0x3b7a2c,
     road: ['#4a4d54', 'rgba(255,255,255,0.06)'], hemi: [0xe6f2ff, 0x4a6a35, 0.62], sun: [0xfff1d6, 0.72], skid: 0.5 },
@@ -1018,7 +1019,8 @@ function tex(name) {
     case 'grid': t = canvasTex(256, 256, (c, w, h) => {
       c.fillStyle = '#0a0d18'; c.fillRect(0, 0, w, h);
       noise(c, w, h, 1200, () => 'rgba(255,255,255,0.03)', 3);
-      c.strokeStyle = 'rgba(120,110,255,0.22)'; c.lineWidth = 3; c.strokeRect(0, 0, w, h);
+      c.strokeStyle = 'rgba(255,61,242,0.55)'; c.lineWidth = 4; c.strokeRect(0, 0, w, h);
+      c.strokeStyle = 'rgba(255,170,250,0.9)'; c.lineWidth = 1.2; c.strokeRect(0, 0, w, h);
     }, true); break;
     case 'grass': t = canvasTex(256, 256, (c, w, h) => {
       c.fillStyle = '#ffffff'; c.fillRect(0, 0, w, h);
@@ -1122,14 +1124,25 @@ function trackScene(tr) {
       const stars = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)),
         new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8 }));
       sky.add(stars);
+      const sunTex = canvasTex(512, 512, (c, w, h) => {
+        const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#ffe36e'); gr.addColorStop(0.45, '#ff8a4c'); gr.addColorStop(1, '#ff2fd0');
+        c.fillStyle = gr; c.beginPath(); c.arc(w / 2, h / 2, w / 2 - 2, 0, TAU); c.fill();
+        c.globalCompositeOperation = 'destination-out';
+        for (let k = 0; k < 8; k++) c.fillRect(0, h * 0.5 + k * 30 + k * k * 1.5, w, 3 + k * 2.2);
+      });
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(10000, 10000), new THREE.MeshBasicMaterial({ map: tex('soft'), color: 0xff3df2, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
+      halo.position.set(0, 2500, -12300); sky.add(halo);
+      const sunM = new THREE.Mesh(new THREE.PlaneGeometry(4600, 4600), new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, fog: false, depthWrite: false }));
+      sunM.position.set(0, 2500, -12000); sky.add(sunM);
     }
   }
   const b = tr.bounds, M = 2600;
   const cx = (b.minX + b.maxX) / 2, cz = (b.minY + b.maxY) / 2, gw = b.maxX - b.minX + M * 2, gh = b.maxY - b.minY + M * 2;
   // Ground
   if (tr.flat) {
-    const gt = tex('grid').clone(); gt.needsUpdate = true; gt.repeat.set(gw / 230, gh / 230);
-    const gm = add(new THREE.PlaneGeometry(gw, gh), lambert({ color: 0xffffff, map: gt }));
+    const big = 40000;
+    const gt = tex('grid').clone(); gt.needsUpdate = true; gt.repeat.set((gw + big) / 230, (gh + big) / 230);
+    const gm = add(new THREE.PlaneGeometry(gw + big, gh + big), basic({ color: 0x9a90b8, map: gt }));
     gm.rotation.x = -Math.PI / 2; gm.position.set(cx, -1.5, cz);
   } else {
     const seg = 60, sx = Math.ceil(gw / seg), sz = Math.ceil(gh / seg);
@@ -1227,6 +1240,42 @@ function trackScene(tr) {
       const roof = new THREE.InstancedMesh(box, basic({ color: new THREE.Color(hue) }), list.length);
       list.forEach((bl, k) => { dummy.position.set(bl.x + bl.w / 2, bl.height - 1, bl.y + bl.h / 2); dummy.scale.set(bl.w + 2, 2, bl.h + 2); dummy.updateMatrix(); roof.setMatrixAt(k, dummy.matrix); });
       g.add(roof);
+    }
+    // Light tunnels: rows of neon rings over the road
+    const ringGeo = new THREE.TorusGeometry(HW + 40, 2.4, 6, 48, Math.PI);
+    const ringGlow = new THREE.TorusGeometry(HW + 40, 9, 6, 48, Math.PI);
+    for (const f of [0.22, 0.47, 0.72]) {
+      const i0 = Math.round(f * N);
+      if (tr.pads.some((pd) => Math.abs(pd - i0) < 40)) continue;
+      for (let j = 0; j < 6; j++) {
+        const col = j % 2 ? def.a : def.b, grp = new THREE.Group();
+        const r1 = new THREE.Mesh(ringGeo, basic({ color: col })); r1.rotation.y = Math.PI / 2; grp.add(r1);
+        const r2 = new THREE.Mesh(ringGlow, additive(col, 0.12)); r2.rotation.y = Math.PI / 2; grp.add(r2);
+        placeOnTrack(grp, tr, (i0 + j * 7) % N, 0, 0);
+        g.add(grp);
+      }
+    }
+    // Glowing signs on buildings that face the track
+    const WORDS = ['NEON', 'DRIFT', 'ARCADE', '24/7', 'RAMEN', 'HOTEL', 'TURBO', 'NITRO', 'CLUB', 'PIZZA', 'SUSHI', 'GARAGE'];
+    const signTex = {};
+    let signs = 0;
+    srand(N * 31 + 7);
+    for (const bl of tr.blocks) {
+      if (signs >= 50) break;
+      const cx = bl.x + bl.w / 2, cy = bl.y + bl.h / 2, n = tr.nearest(cx, cy);
+      if (n.dist > 800 || rnd() < 0.45) continue;
+      const dx = n.x - cx, dy = n.y - cy;
+      let px, py, ry, fw;
+      if (Math.abs(dx) > Math.abs(dy)) { px = cx + Math.sign(dx) * (bl.w / 2 + 1.5); py = cy; ry = dx > 0 ? Math.PI / 2 : -Math.PI / 2; fw = bl.h; }
+      else { px = cx; py = cy + Math.sign(dy) * (bl.h / 2 + 1.5); ry = dy > 0 ? 0 : Math.PI; fw = bl.w; }
+      const word = WORDS[Math.floor(rnd() * WORDS.length)], col = rnd() < 0.5 ? def.a : def.b, key = word + col;
+      const t = signTex[key] || (signTex[key] = textTex(word, col, 'rgba(4,4,14,0.94)', true));
+      const sw = fw * 0.82, sh = (sw * 96) / 512;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), basic({ map: t, side: THREE.FrontSide }));
+      m.position.set(px, clamp(bl.height * (0.35 + rnd() * 0.4), 30, bl.height - sh - 6), py);
+      m.rotation.y = ry;
+      g.add(m);
+      signs++;
     }
   } else {
     const trunkG = new THREE.CylinderGeometry(2.5, 3.5, 24, 6); trunkG.translate(0, 12, 0);
@@ -1390,11 +1439,52 @@ class RaceGfx {
     const m = makeCar(car.color, this.theme.night, false);
     this.meshes.set(car, m);
     this.scene.add(m.group);
+    if (this.theme.night) {
+      const P = 24, geo = new THREE.BufferGeometry(), idx = [];
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * P * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(2 * P * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      for (let s2 = 0; s2 < 2; s2++) for (let k = 0; k < P - 1; k++) { const a = (s2 * P + k) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      geo.setIndex(idx);
+      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      m.trail = new THREE.Mesh(geo, mat);
+      m.trail.frustumCulled = false;
+      m.hist = [];
+      m.P = P;
+      this.scene.add(m.trail);
+    }
+  }
+  dropCar(m) {
+    this.scene.remove(m.group);
+    m.own.forEach((x) => x.dispose());
+    if (m.trail) { this.scene.remove(m.trail); m.trail.geometry.dispose(); m.trail.material.dispose(); }
+  }
+  updateTrail(m, car) {
+    const fx = Math.cos(car.a), fy = Math.sin(car.a), h = m.hist;
+    const pt = { x: car.x - fx * 23, y: car.y - fy * 23, z: car.z + 9, a: car.a };
+    const last = h[0];
+    if (!last || (pt.x - last.x) ** 2 + (pt.y - last.y) ** 2 > 36) { h.unshift(pt); if (h.length > m.P) h.pop(); }
+    else h[0] = pt;
+    const P = m.P, pos = m.trail.geometry.attributes.position.array, colA = m.trail.geometry.attributes.color.array;
+    const c = col3(car.color), k0 = clamp((car.speed - 120) / 320, 0, 1) * 0.9;
+    for (let s2 = 0; s2 < 2; s2++) {
+      const side = s2 ? 7 : -7;
+      for (let k = 0; k < P; k++) {
+        const q = h[Math.min(k, h.length - 1)], rx = -Math.sin(q.a), ry = Math.cos(q.a);
+        const cx = q.x + rx * side, cy = q.y + ry * side, w = 1.8;
+        const o = (s2 * P + k) * 6;
+        pos[o] = cx + rx * w; pos[o + 1] = q.z; pos[o + 2] = cy + ry * w;
+        pos[o + 3] = cx - rx * w; pos[o + 4] = q.z; pos[o + 5] = cy - ry * w;
+        const f = k0 * Math.pow(1 - k / (P - 1), 1.6);
+        for (const off of [0, 3]) { colA[o + off] = c.r * f; colA[o + off + 1] = c.g * f; colA[o + off + 2] = c.b * f; }
+      }
+    }
+    m.trail.geometry.attributes.position.needsUpdate = true;
+    m.trail.geometry.attributes.color.needsUpdate = true;
   }
   sync(dt) {
     const race = this.race, tr = race.track;
     // Cars (and drop meshes for cars that left an online race)
-    for (const [car, m] of this.meshes) if (!race.cars.includes(car)) { this.scene.remove(m.group); m.own.forEach((x) => x.dispose()); this.meshes.delete(car); }
+    for (const [car, m] of this.meshes) if (!race.cars.includes(car)) { this.dropCar(m); this.meshes.delete(car); }
     for (const car of race.cars) {
       let m = this.meshes.get(car);
       if (!m) { this.addCar(car); m = this.meshes.get(car); }
@@ -1408,6 +1498,7 @@ class RaceGfx {
       for (const f of m.front) f.rotation.y = lerp(f.rotation.y, -steer * 0.42, 1 - Math.exp(-12 * dt));
       m.tail.color.setHex(car.braking ? 0xff2a3a : 0x6a0a12);
       m.flame.visible = car.boosting;
+      if (m.trail) this.updateTrail(m, car);
       if (car.boosting) m.flame.scale.set(0.8 + Math.random() * 0.6, 1, 1);
     }
     // Ghost
@@ -1475,8 +1566,7 @@ class RaceGfx {
     cam.updateProjectionMatrix();
     const pr = renderer.getPixelRatio(), sc = (v.h * pr) / (2 * Math.tan((cam.fov * Math.PI) / 360));
     this.smoke.material.uniforms.scale.value = this.glow.material.uniforms.scale.value = sc;
-    renderer.setViewport(v.x, H - v.y - v.h, v.w, v.h);
-    renderer.setScissor(v.x, H - v.y - v.h, v.w, v.h);
+    Post.view(v.x, H - v.y - v.h, v.w, v.h);
   }
   renderView(v, k, car, dt) {
     const C = this.camera(k), cam = C.cam, tr = this.race.track, mode = CAM_MODES[car.camMode || 0];
@@ -1526,7 +1616,7 @@ class RaceGfx {
     renderer.render(this.scene, cam);
   }
   dispose() {
-    for (const [, m] of this.meshes) { this.scene.remove(m.group); m.own.forEach((x) => x.dispose()); }
+    for (const [, m] of this.meshes) this.dropCar(m);
     if (this.ghost) this.ghost.own.forEach((x) => x.dispose());
     for (const o of [this.skids, this.smoke, this.glow]) { o.geometry.dispose(); o.material.dispose(); }
     if (this.st.group.parent === this.scene) this.scene.remove(this.st.group);
@@ -1660,6 +1750,73 @@ function drawHud(race, view, car, rank, tags) {
   ctx.restore();
 }
 
+/* Glow (bloom): render the scene to a texture, blur its bright parts, and add them back on top */
+const Post = {
+  on: store.get('glow', true), target: null, w: 0, h: 0,
+  init() {
+    if (this.rt) return;
+    this.rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
+    this.a = new THREE.WebGLRenderTarget(1, 1);
+    this.b = new THREE.WebGLRenderTarget(1, 1);
+    this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+    this.quad.frustumCulled = false;
+    this.scene = new THREE.Scene();
+    this.scene.add(this.quad);
+    const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+    const m = (fs, u) => new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs, depthTest: false, depthWrite: false });
+    this.bright = m('uniform sampler2D t; uniform float th; varying vec2 vUv; void main(){ vec3 c = texture2D(t, vUv).rgb; float l = max(c.r, max(c.g, c.b)); gl_FragColor = vec4(c * smoothstep(th, th + 0.35, l), 1.0); }',
+      { t: { value: null }, th: { value: 0.5 } });
+    this.blur = m('uniform sampler2D t; uniform vec2 dir; varying vec2 vUv; void main(){ vec3 s = texture2D(t, vUv).rgb * 0.227027;' +
+      ' s += (texture2D(t, vUv + dir * 1.3846).rgb + texture2D(t, vUv - dir * 1.3846).rgb) * 0.316216;' +
+      ' s += (texture2D(t, vUv + dir * 3.2308).rgb + texture2D(t, vUv - dir * 3.2308).rgb) * 0.070270; gl_FragColor = vec4(s, 1.0); }',
+      { t: { value: null }, dir: { value: new THREE.Vector2() } });
+    this.comp = m('uniform sampler2D base; uniform sampler2D glow; uniform float k; varying vec2 vUv; void main(){ vec3 c = texture2D(base, vUv).rgb + texture2D(glow, vUv).rgb * k; gl_FragColor = vec4(c, 1.0); }',
+      { base: { value: null }, glow: { value: null }, k: { value: 1.2 } });
+  },
+  begin() {
+    this.init();
+    const pr = renderer.getPixelRatio(), w = Math.max(1, Math.round(W * pr)), h = Math.max(1, Math.round(H * pr));
+    if (w !== this.w || h !== this.h) {
+      this.w = w; this.h = h;
+      this.rt.setSize(w, h);
+      this.a.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+      this.b.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+    }
+    this.target = this.rt;
+  },
+  view(x, y, w, h) {
+    if (this.target) {
+      const pr = renderer.getPixelRatio();
+      this.rt.viewport.set(x * pr, y * pr, w * pr, h * pr);
+      this.rt.scissor.set(x * pr, y * pr, w * pr, h * pr);
+      this.rt.scissorTest = true;
+      renderer.setRenderTarget(this.rt);
+    } else {
+      renderer.setViewport(x, y, w, h);
+      renderer.setScissor(x, y, w, h);
+    }
+  },
+  end(strength) {
+    this.target = null;
+    const pass = (mat, target) => { this.quad.material = mat; renderer.setRenderTarget(target); renderer.render(this.scene, this.cam); };
+    renderer.setScissorTest(false);
+    this.bright.uniforms.t.value = this.rt.texture;
+    pass(this.bright, this.a);
+    const w = this.a.width, h = this.a.height;
+    for (const spread of [1, 2, 3.5]) {
+      this.blur.uniforms.t.value = this.a.texture; this.blur.uniforms.dir.value.set(spread / w, 0); pass(this.blur, this.b);
+      this.blur.uniforms.t.value = this.b.texture; this.blur.uniforms.dir.value.set(0, spread / h); pass(this.blur, this.a);
+    }
+    this.comp.uniforms.base.value = this.rt.texture;
+    this.comp.uniforms.glow.value = this.a.texture;
+    this.comp.uniforms.k.value = strength;
+    renderer.setViewport(0, 0, W, H);
+    pass(this.comp, null);
+    renderer.setScissorTest(true);
+  },
+};
+
 function render(dt) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -1678,7 +1835,10 @@ function render(dt) {
     }
     attract.update(Math.min(dt, 0.05));
     attract.gfx.sync(dt);
+    const glowA = Post.on && attract.gfx.theme.night;
+    if (glowA) Post.begin();
     attract.gfx.renderAttract({ x: 0, y: 0, w: W, h: H }, dt);
+    if (glowA) Post.end(1.15);
     return;
   }
   if (!race.gfx) race.gfx = new RaceGfx(race);
@@ -1689,10 +1849,11 @@ function render(dt) {
   else if (W >= H) { views.push({ x: 0, y: 0, w: Math.floor(W / 2) - 2, h: H }); views.push({ x: Math.ceil(W / 2) + 2, y: 0, w: Math.floor(W / 2) - 2, h: H }); }
   else { views.push({ x: 0, y: 0, w: W, h: Math.floor(H / 2) - 2 }); views.push({ x: 0, y: Math.ceil(H / 2) + 2, w: W, h: Math.floor(H / 2) - 2 }); }
   const order = race.standings();
-  race.views.forEach((car, k) => {
-    const tags = race.gfx.renderView(views[k], k, car, dt);
-    drawHud(race, views[k], car, order.indexOf(car) + 1, tags);
-  });
+  const glow = Post.on && race.gfx.theme.night;
+  if (glow) Post.begin();
+  const allTags = race.views.map((car, k) => race.gfx.renderView(views[k], k, car, dt));
+  if (glow) Post.end(1.15);
+  race.views.forEach((car, k) => drawHud(race, views[k], car, order.indexOf(car) + 1, allTags[k]));
   if (n > 1) { ctx.fillStyle = '#22e4ff'; if (W >= H) ctx.fillRect(W / 2 - 2, 0, 4, H); else ctx.fillRect(0, H / 2 - 2, W, 4); }
 }
 let attract = null;
@@ -1875,6 +2036,8 @@ $('name').value = store.get('name', '');
 $('name').addEventListener('input', () => store.set('name', $('name').value.trim()));
 $('vol').value = Math.round(Sound.volume * 100);
 $('vol').addEventListener('input', () => Sound.setVolume($('vol').value / 100));
+$('glow').checked = Post.on;
+$('glow').addEventListener('change', () => { Post.on = $('glow').checked; store.set('glow', Post.on); });
 
 /* =========================================================================
    Online

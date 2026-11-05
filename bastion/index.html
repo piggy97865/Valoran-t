@@ -302,15 +302,17 @@ const ENEMIES = {
   splitter: { name: 'Splitter', hp: 120, speed: 1.3, armor: 0, bounty: 8, size: 14, color: '#3dd8e0' },
   mini: { name: 'Splitling', hp: 38, speed: 1.9, armor: 0, bounty: 2, size: 8, color: '#3dd8e0' },
   wisp: { name: 'Wisp', hp: 75, speed: 1.55, armor: 0, bounty: 9, size: 11, color: '#e9e4ff', flying: true },
-  boss: { name: 'Warlord', hp: 2000, speed: 0.65, armor: 6, bounty: 150, size: 24, color: '#ff2d6f', boss: true },
+  boss: { name: 'Warlord', hp: 1100, speed: 0.6, armor: 3, bounty: 150, size: 24, color: '#ff2d6f', boss: true },
 };
 const ENEMY_TYPES = Object.keys(ENEMIES);
 const DIFFS = [
-  { name: 'Easy', hp: 0.75, lives: 30, gold: 260 },
-  { name: 'Medium', hp: 1, lives: 20, gold: 220 },
-  { name: 'Hard', hp: 1.3, lives: 10, gold: 200 },
+  { name: 'Easy', hp: 0.75, lives: 30, gold: 400 },
+  { name: 'Medium', hp: 1, lives: 20, gold: 320 },
+  { name: 'Hard', hp: 1.6, lives: 10, gold: 260 },
 ];
 const FINAL_WAVE = 30;
+const BOUNTY_MULT = 1.5; // extra gold per kill
+const waveBonus = (n) => 40 + 5 * n;
 
 function waveGroups(n) {
   const G = [];
@@ -428,7 +430,7 @@ class Sim {
   spawn(type, wave, path, dist) {
     const E = ENEMIES[type];
     const hp = Math.round(E.hp * hpScale(wave) * this.D.hp * this.coopHp());
-    const e = { id: this.uid++, type, hp, maxHp: hp, speed: E.speed, armor: E.armor + (E.armor ? Math.floor(wave / 8) : 0), bounty: E.bounty,
+    const e = { id: this.uid++, type, hp, maxHp: hp, speed: E.speed, armor: E.armor + (E.armor && !E.boss ? Math.floor(wave / 8) : 0), bounty: E.bounty,
       size: E.size, flying: !!E.flying, path, dist: dist || 0, ofs: (Math.random() - 0.5) * (E.boss ? 4 : 12), slowT: 0, slowAmt: 0,
       x: 0, y: 0, a: 0, healT: 1.5 + Math.random(), summonT: 4, hit: 0 };
     this.placeEnemy(e);
@@ -484,8 +486,8 @@ class Sim {
         if (any) this.fx({ e: 'heal', x: e.x | 0, y: e.y | 0 });
       }
       if (e.type === 'boss' && (e.summonT -= dt) <= 0) {
-        e.summonT = 5;
-        for (let k = 0; k < 3; k++) this.spawn('swarm', this.wave, e.path, Math.max(0, e.dist - 10 - k * 12));
+        e.summonT = 7;
+        for (let k = 0; k < 2; k++) this.spawn('swarm', this.wave, e.path, Math.max(0, e.dist - 10 - k * 12));
         this.fx({ e: 'summon', x: e.x | 0, y: e.y | 0 });
       }
     }
@@ -518,7 +520,7 @@ class Sim {
     }
     // Wave cleared?
     if (this.wave > 0 && !this.queue.length && !this.enemies.length && this.next == null) {
-      const bonus = 25 + 3 * this.wave;
+      const bonus = waveBonus(this.wave);
       for (const p of this.players) this.gold[p.id] += bonus;
       for (const tw of this.towers) if (tw.kind === 'mine' && this.gold[tw.owner] != null) {
         const v = TOWERS.mine.income[tw.level - 1];
@@ -594,7 +596,7 @@ class Sim {
       if (!hits.length) return;
       tw.cd = D.rate[L];
       for (const e of hits) {
-        if (e.slowAmt <= D.slow[L]) { e.slowAmt = D.slow[L] * (e.type === 'boss' ? 0.5 : 1); e.slowT = 1.6; }
+        if (e.slowAmt <= D.slow[L]) { e.slowAmt = D.slow[L] * (e.type === 'boss' ? 0.75 : 1); e.slowT = 1.6; }
         this.damage(e, D.dmg[L], tw);
       }
       this.fx({ e: 'frost', x: tw.x, y: tw.y, r: Math.round(r) });
@@ -760,8 +762,9 @@ class Sim {
     if (i >= 0) this.enemies.splice(i, 1);
     this.kills++;
     if (tw) tw.kills = (tw.kills || 0) + 1;
-    for (const p of this.players) this.gold[p.id] += e.bounty;
-    this.fx({ e: 'die', x: e.x | 0, y: e.y | 0, type: e.type, b: e.bounty });
+    const bounty = Math.round(e.bounty * BOUNTY_MULT);
+    for (const p of this.players) this.gold[p.id] += bounty;
+    this.fx({ e: 'die', x: e.x | 0, y: e.y | 0, type: e.type, b: bounty });
     if (e.type === 'splitter') {
       for (const k of [-1, 1]) {
         const m = this.spawn('mini', this.wave, e.path, Math.max(0, e.dist + k * 8));

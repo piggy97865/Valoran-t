@@ -353,7 +353,7 @@ function waveGroups(n, diff, np) {
   const coop = 1 + 0.25 * ((np || 1) - 1); // more enemies with more players
   const F = finalWave(diff);
   // Endless (after the final wave): more enemies, packed closer together, every wave.
-  const ef = n > F ? 1 + (n - F) * 0.08 : 1;
+  const ef = n > F ? 1 + (n - F) * 0.04 : 1;
   const add = (type, count, gap, at) => {
     const boss = ENEMIES[type].boss;
     count = Math.round(boss ? count : count * ef * coop);
@@ -410,7 +410,7 @@ function waveGroups(n, diff, np) {
     add('emperor', 1, 1, (at += 10));
   }
   if (n > F) {
-    if (n >= 40 && n % 4 === 0) add('dragon', 1, 1, (at += 3));
+    if (n >= F + 10 && n % 5 === 0) add('dragon', 1, 1, (at += 3));
     if (n % 5 === 0) add('boss', 1 + Math.floor((n - F) / 10), 4, (at += 4));
     if (n % 10 === 0) add(special, Math.floor((n - F + 10) / 10), 8, (at += 6));
     if (F === 40 && n % 20 === 0) add('emperor', 1, 1, (at += 8));
@@ -420,7 +420,7 @@ function waveGroups(n, diff, np) {
 }
 function hpScale(n, F = FINAL_WAVE) {
   const base = 1 + 0.12 * (n - 1) + 0.013 * (n - 1) * (n - 1);
-  return n > F ? base * Math.pow(1.11, n - F) : base;
+  return n > F ? base * Math.pow(1.05, n - F) : base;
 }
 
 /* Map geometry */
@@ -518,7 +518,7 @@ class Sim {
   spawn(type, wave, path, dist) {
     const E = ENEMIES[type];
     const hp = Math.round(E.hp * hpScale(wave, this.final) * this.D.hp * this.coopHp());
-    const endlessSpeed = 1 + Math.min(0.45, Math.max(0, wave - this.final) * 0.02);
+    const endlessSpeed = 1 + Math.min(0.3, Math.max(0, wave - this.final) * 0.01);
     const e = { id: this.uid++, type, hp, maxHp: hp, speed: E.speed * (this.D.speed || 1) * endlessSpeed, armor: E.armor + (E.armor && !E.boss ? Math.floor(wave / 8) : 0), bounty: E.bounty,
       size: E.size, flying: !!E.flying, path, dist: dist || 0, ofs: (Math.random() - 0.5) * (E.boss ? 4 : 12), slowT: 0, slowAmt: 0,
       x: 0, y: 0, a: 0, healT: 1.5 + Math.random(), summonT: 4, hit: 0 };
@@ -559,7 +559,7 @@ class Sim {
       const ps = this.pendingSpawns[k];
       if ((ps.t -= dt) > 0) continue;
       this.pendingSpawns.splice(k, 1);
-      const e = this.spawn(ps.type, ps.wave, ps.path, 0);
+      const e = this.spawn(ps.type, ps.wave, ps.path, ps.dist || 0);
       this.fx({ e: 'ascend', x: e.x | 0, y: e.y | 0 });
     }
     // Spawning
@@ -803,7 +803,7 @@ class Sim {
       }
       this.fx({ e: 'cleared', n: this.wave, bonus });
       if (this.wave >= this.final && !this.endless) { this.state = 'won'; this.fx({ e: 'won', wave: this.wave }); return; }
-      this.next = this.endless ? 10 : this.D.pause;
+      this.next = this.endless ? 15 : this.D.pause;
     }
     if (this.next != null) {
       this.next -= dt;
@@ -1069,7 +1069,7 @@ class Sim {
     if (i >= 0) this.enemies.splice(i, 1);
     if (e.type === 'emperor') { // he falls... then rises again at the start as a god
       this.fx({ e: 'empfall', x: e.x | 0, y: e.y | 0 });
-      this.pendingSpawns.push({ t: 4, type: 'ascended', wave: this.wave, path: e.path });
+      this.pendingSpawns.push({ t: 6.2, type: 'ascended', wave: this.wave, path: e.path, dist: e.dist });
     }
     this.kills++;
     if (tw) tw.kills = (tw.kills || 0) + 1;
@@ -1218,6 +1218,8 @@ const Sound = {
       case 'wave': this.tone(392, 0.18, 'triangle', 0.12); setTimeout(() => this.tone(523, 0.3, 'triangle', 0.12), 150); break;
       case 'boss': this.tone(110, 0.9, 'sawtooth', 0.12, 70); setTimeout(() => this.tone(98, 0.9, 'sawtooth', 0.12, 60), 400); break;
       case 'clear': [523, 659, 784].forEach((f, i) => setTimeout(() => this.tone(f, 0.2, 'triangle', 0.1), i * 90)); break;
+      case 'rumble': if (this.ctx) { this.tone(55, 2.2, 'sawtooth', 0.12, 35); this.hiss(2.0, 200, 0.18); } break;
+      case 'choir': if (this.ctx) { [392, 494, 587, 784].forEach((f, i) => setTimeout(() => this.tone(f, 2.4, 'sine', 0.07), i * 120)); this.hiss(1.5, 6000, 0.05, 'highpass'); } break;
       case 'ping': this.tone(1200, 0.15, 'sine', 0.1); setTimeout(() => this.tone(1600, 0.2, 'sine', 0.08), 100); break;
       case 'error': this.tone(180, 0.15, 'square', 0.06); break;
     }
@@ -2383,15 +2385,17 @@ function addFx(e, view) {
       break;
     }
     case 'empfall':
-      effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 3 });
-      banner('The Void Emperor has fallen...', '...or has he?');
-      Sound.play('boom'); setTimeout(() => Sound.play('boss'), 700);
+      effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 6.2 });
+      banner('The Void Emperor has fallen', '');
+      shakeT = 1.1;
+      Sound.play('boom'); setTimeout(() => Sound.play('boom'), 250); setTimeout(() => Sound.play('rumble'), 600);
+      setTimeout(() => { Sound.play('choir'); }, 2700);
       break;
     case 'ascend':
       effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 2.2 });
       effects.push({ k: 'ring', x: e.x, y: e.y, r: 160, t: 0, T: 1.2, col: '255,230,150', fill: true });
       effects.push({ k: 'flashw', t: 0, T: 0.9 });
-      banner('HE HAS ASCENDED!', 'The Emperor returns as a god. Beat him one last time!');
+      banner('HE HAS ASCENDED', 'The Emperor returns as a god. Beat him one last time!');
       Sound.play('clear'); setTimeout(() => Sound.play('boss'), 300);
       break;
     case 'rise':
@@ -2446,15 +2450,74 @@ function drawEffects(c, dt) {
       c.fillStyle = rgba(f.hex, (1 - u) * (f.glow ? 0.9 : 0.45));
       c.beginPath(); c.arc(f.x, f.y, f.r * (f.glow ? 1 - u * 0.5 : 1 + u), 0, TAU); c.fill();
       c.globalCompositeOperation = 'source-over';
-    } else if (f.k === 'fall') { // the Void Emperor topples, sinks and fades
-      const fall = Math.min(1, u * 2.2), fade = u < 0.55 ? 1 : 1 - (u - 0.55) / 0.45;
-      c.save(); c.translate(f.x, f.y + 20 * fall); c.rotate(fall * 1.35); c.globalAlpha = fade;
-      const g = c.createRadialGradient(0, -10, 4, 0, 0, 40); g.addColorStop(0, '#5a2aa0'); g.addColorStop(1, '#05010e');
-      c.fillStyle = g; c.beginPath(); c.ellipse(0, 0, 22, 40, 0, 0, TAU); c.fill();
-      c.strokeStyle = '#ffcf4a'; c.lineWidth = 3; c.beginPath(); c.ellipse(0, -32, 26, 10, 0, 0, TAU); c.stroke();
-      c.fillStyle = '#e9d0ff'; for (const k of [-1, 1]) { c.beginPath(); c.ellipse(k * 7, -30, 4, 1.5, 0, 0, TAU); c.fill(); }
+    } else if (f.k === 'fall') { // the Void Emperor's death: stagger, fall, drain, rise, become light
+      const tt = f.t;
+      const ease = (x) => x * x * (3 - 2 * x);
+      // 0-1.4s stagger and topple, 1.4-2.6s lie still, 2.6-5.2s float up and turn upright, 5.2-6.2s dissolve into light
+      const topple = tt < 1.4 ? ease(Math.min(1, Math.max(0, (tt - 0.5) / 0.9))) : tt < 2.6 ? 1 : 1 - ease(Math.min(1, (tt - 2.6) / 2.6));
+      const rise = tt < 2.6 ? 0 : ease(Math.min(1, (tt - 2.6) / 2.6));
+      const light = tt < 2.4 ? 0 : Math.min(1, (tt - 2.4) / 2.8);
+      const dissolve = tt < 5.2 ? 0 : Math.min(1, (tt - 5.2) / 1.0);
+      const jit = tt < 1.0 ? (1 - tt) * 4 : 0;
+      const bx = f.x + (Math.random() - 0.5) * jit, by = f.y - 8 + 22 * topple * (1 - rise) - rise * 95 + (Math.random() - 0.5) * jit;
+      // dark void burst on death
+      if (tt < 1.2) {
+        const r1 = 30 + tt * 160;
+        c.strokeStyle = `rgba(150,80,255,${0.8 * (1 - tt / 1.2)})`; c.lineWidth = 6 * (1 - tt / 1.2) + 1;
+        c.beginPath(); c.arc(f.x, f.y, r1, 0, TAU); c.stroke();
+        c.beginPath(); c.arc(f.x, f.y, r1 * 0.6, 0, TAU); c.stroke();
+      }
+      // shadow left on the ground as he rises
+      c.fillStyle = `rgba(0,0,0,${0.25 * (1 - dissolve)})`; c.beginPath(); c.ellipse(f.x, f.y + 22, 26 * (1 - rise * 0.5), 9 * (1 - rise * 0.5), 0, 0, TAU); c.fill();
+      // growing glow around the rising body
+      if (light > 0) {
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const gr = c.createRadialGradient(bx, by, 4, bx, by, 60 + light * 90);
+        gr.addColorStop(0, `rgba(255,255,240,${0.9 * light})`); gr.addColorStop(0.4, `rgba(255,225,140,${0.5 * light})`); gr.addColorStop(1, 'rgba(255,220,130,0)');
+        c.fillStyle = gr; c.beginPath(); c.arc(bx, by, 60 + light * 90, 0, TAU); c.fill();
+        c.translate(bx, by); c.rotate(tt * 0.8);
+        for (let k = 0; k < 10; k++) {
+          c.rotate(TAU / 10);
+          const rg = c.createLinearGradient(0, 0, 70 + light * 120, 0); rg.addColorStop(0, `rgba(255,245,200,${0.55 * light})`); rg.addColorStop(1, 'rgba(255,245,200,0)');
+          c.fillStyle = rg; c.beginPath(); c.moveTo(0, -3); c.lineTo(70 + light * 120, 0); c.lineTo(0, 3); c.closePath(); c.fill();
+        }
+        c.restore();
+      }
+      // the body (slim, like the living emperor), shifting from void-purple to white-gold
+      const mix = (a, b, k) => Math.round(a + (b - a) * k);
+      const cTop = `rgb(${mix(90, 255, light)},${mix(42, 248, light)},${mix(160, 225, light)})`, cBot = `rgb(${mix(5, 230, light)},${mix(1, 180, light)},${mix(14, 90, light)})`;
+      c.save(); c.translate(bx, by); c.rotate(topple * 1.4); c.scale(1.4, 1.4); c.globalAlpha = 1 - dissolve;
+      const body = c.createLinearGradient(0, -40, 0, 45); body.addColorStop(0, cTop); body.addColorStop(1, cBot);
+      c.fillStyle = body; c.strokeStyle = light > 0.5 ? '#c9932a' : '#000'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(-12, -20); c.quadraticCurveTo(-24, 10, -17, 42); c.lineTo(17, 42); c.quadraticCurveTo(24, 10, 12, -20); c.closePath(); c.fill(); c.stroke();
+      c.beginPath(); c.ellipse(0, -30, 11, 13, 0, 0, TAU); c.fill(); c.stroke();
+      c.strokeStyle = light > 0.3 ? `rgba(255,240,180,${0.6 + 0.4 * light})` : '#ffcf4a'; c.lineWidth = 2.5;
+      c.beginPath(); c.ellipse(0, -44, 16 + light * 6, 5 + light * 2, 0, 0, TAU); c.stroke();
+      // cracks of light breaking out of the body
+      const crack = Math.min(1, tt / 0.9) * (1 - dissolve);
+      c.strokeStyle = `rgba(255,250,220,${crack})`; c.lineWidth = 2; c.shadowColor = '#ffffff'; c.shadowBlur = 10;
+      c.beginPath();
+      c.moveTo(0, -18); c.lineTo(-5, -4); c.lineTo(3, 8); c.lineTo(-4, 24);
+      c.moveTo(3, 8); c.lineTo(11, 18); c.moveTo(-5, -4); c.lineTo(-12, 2);
+      c.moveTo(0, -36); c.lineTo(4, -28); c.lineTo(-2, -22);
+      c.stroke(); c.shadowBlur = 0;
+      // eyes: dim and flicker out, then come back as white light
+      const eyeA = tt < 1.4 ? (Math.random() < 0.7 ? 1 - tt / 1.4 : 0) : light;
+      c.fillStyle = light > 0.2 ? `rgba(255,255,255,${eyeA})` : `rgba(233,208,255,${eyeA})`;
+      for (const k of [-1, 1]) { c.beginPath(); c.ellipse(k * 4.5, -30, 3, 1.4, 0, 0, TAU); c.fill(); }
       c.restore(); c.globalAlpha = 1;
-      if (Math.random() < 0.6) effects.push({ k: 'mote', x: f.x + (Math.random() - 0.5) * 60, y: f.y + (Math.random() - 0.5) * 40, vx: 0, vy: -50, t: 0, T: 1.2, r: 3, hex: '#b98cff', glow: true });
+      // final burst into pure light
+      if (dissolve > 0) {
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const orb = c.createRadialGradient(bx, by, 2, bx, by, 30 + dissolve * 120);
+        orb.addColorStop(0, `rgba(255,255,255,${dissolve})`); orb.addColorStop(1, 'rgba(255,240,190,0)');
+        c.fillStyle = orb; c.beginPath(); c.arc(bx, by, 30 + dissolve * 120, 0, TAU); c.fill();
+        c.restore();
+      }
+      // particles: void energy pouring out early, golden light later
+      if (tt < 2.8 && Math.random() < 0.9) effects.push({ k: 'mote', x: bx + (Math.random() - 0.5) * 50, y: by + (Math.random() - 0.5) * 50, vx: (Math.random() - 0.5) * 30, vy: -40 - Math.random() * 50, t: 0, T: 1.4, r: 3.5, hex: '#9a50ff', glow: true });
+      if (tt > 2.4 && Math.random() < 0.9) { const a2 = Math.random() * TAU; effects.push({ k: 'mote', x: bx + Math.cos(a2) * 110, y: by + Math.sin(a2) * 80, vx: -Math.cos(a2) * 90, vy: -Math.sin(a2) * 70, t: 0, T: 1.1, r: 2.5, hex: '#fff3c0', glow: true }); }
+      if (tt > 1.35 && !f.thud) { f.thud = 1; shakeT = 0.6; Sound.play('boom'); }
     } else if (f.k === 'pillar') { // beam of holy light
       const w = f.small ? 26 : 70, a2 = Math.sin(u * Math.PI);
       c.save(); c.globalCompositeOperation = 'lighter';

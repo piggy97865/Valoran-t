@@ -328,11 +328,11 @@ const ENEMIES = {
   stormwing: { name: 'Stormwing', hp: 90, speed: 2.1, armor: 0, bounty: 9, size: 11, color: '#ffd84a', flying: true, noSlow: true, tip: "a fast flyer that can't be slowed. Bring anti-air!" },
   brood: { name: 'Broodmother', hp: 520, speed: 0.75, armor: 2, bounty: 20, size: 18, color: '#7a5236', tip: 'keeps spawning swarms. Splash damage clears them up!' },
   rager: { name: 'Rager', hp: 160, speed: 1.1, armor: 1, bounty: 9, size: 13, color: '#ff7a2e', tip: 'gets much faster when hurt. Finish it with big hits!' },
-  titan: { name: 'Colossus', hp: 3200, speed: 0.38, armor: 0, bounty: 800, size: 34, color: '#7d8494', boss: true, special: true, leak: 10 },
-  emperor: { name: 'The Void Emperor', hp: 2600, speed: 0.3, armor: 4, bounty: 2500, size: 40, color: '#2a1050', boss: true, special: true, mega: true, leak: 99 },
-  ascended: { name: 'The Ascended Emperor', hp: 4000, speed: 0.26, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
-  voidcrystal: { name: 'Void Crystal', hp: 260, speed: 0, armor: 0, bounty: 60, size: 12, color: '#b98cff', crystal: true },
-  holyseal: { name: 'Holy Seal', hp: 200, speed: 0, armor: 0, bounty: 80, size: 13, color: '#ffe08a', crystal: true },
+  titan: { name: 'Colossus', hp: 2200, speed: 0.38, armor: 0, bounty: 800, size: 34, color: '#7d8494', boss: true, special: true, leak: 10 },
+  emperor: { name: 'The Void Emperor', hp: 4200, speed: 0.3, armor: 4, bounty: 2500, size: 40, color: '#2a1050', boss: true, special: true, mega: true, leak: 99 },
+  ascended: { name: 'The Ascended Emperor', hp: 6400, speed: 0.26, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
+  voidcrystal: { name: 'Void Crystal', hp: 400, speed: 0, armor: 0, bounty: 60, size: 12, color: '#b98cff', crystal: true },
+  holyseal: { name: 'Holy Seal', hp: 320, speed: 0, armor: 0, bounty: 80, size: 13, color: '#ffe08a', crystal: true },
   dragon: { name: 'Shadow Dragon', hp: 2300, speed: 0.7, armor: 3, bounty: 350, size: 28, color: '#7a3cc0', boss: true, special: true, flying: true, leak: 8 },
 };
 const ENEMY_TYPES = Object.keys(ENEMIES);
@@ -533,7 +533,7 @@ class Sim {
     if (type === 'phantom') { e.phaseT = 5; e.hidden = false; }
     if (type === 'emperor') { e.ephase = 0; e.portalT = 6; e.eclipseT = 9; e.laserT = 3; e.baseSpeed = e.speed; this.fx({ e: 'emperor', x: e.x | 0, y: e.y | 0 }); }
     if (type === 'ascended') { e.laserT = 2.5; e.judgeT = 6; e.orbT = 4; e.descentT = 7; e.skyPhase = 0; e.skyH = 0; e.rain = 0; e.baseSpeed = e.speed; }
-    if (type === 'titan') { e.phase = 0; e.armor = 10; e.stompT = 6; e.baseSpeed = e.speed; e.missileT = 3; }
+    if (type === 'titan') { e.phase = 0; e.armor = 6; e.stompT = 7; e.baseSpeed = e.speed; e.missileT = 3; }
     this.placeEnemy(e);
     this.enemies.push(e);
     if (type === 'emperor') this.spawnCrystals(e);
@@ -622,7 +622,7 @@ class Sim {
       if ((e.type === 'titan' || e.type === 'dragon') && (e.missileT -= dt) <= 0) {
         // Wave 30 bosses: the Colossus fires shoulder missiles, the Dragon spits fireballs. Both stun towers.
         const titan = e.type === 'titan';
-        e.missileT = titan ? (e.phase === 2 ? 3.2 : 4.2) : 4.8;
+        e.missileT = titan ? (e.phase === 2 ? 4.2 : 5.5) : 4.8;
         const r = (titan ? 5 : 4.5) * T, n = titan ? (e.phase === 2 ? 3 : 2) : 2;
         const targets = this.towers.filter((tw) => (tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r).sort(() => Math.random() - 0.5).slice(0, n);
         targets.forEach((tw, k) => this.projectiles.push({ id: this.uid++, kind: titan ? 'emissile' : 'efire', x: e.x + (k % 2 ? 22 : -22), y: e.y - (titan ? 26 : 8),
@@ -750,14 +750,14 @@ class Sim {
       if (e.type === 'titan') {
         const f = e.hp / e.maxHp, ph = f > 0.66 ? 0 : f > 0.33 ? 1 : 2;
         if (ph > e.phase) {
-          e.phase = ph; e.armor = [10, 5, 0][ph]; e.speed = e.baseSpeed * [1, 1.35, 1.9][ph];
+          e.phase = ph; e.armor = [6, 3, 0][ph]; e.speed = e.baseSpeed * [1, 1.35, 1.9][ph];
           this.fx({ e: 'armorbreak', x: e.x | 0, y: e.y | 0, ph });
         }
         if ((e.stompT -= dt) <= 0) {
-          e.stompT = e.phase === 2 ? 5 : 7;
+          e.stompT = e.phase === 2 ? 7 : 9;
           const r = 3 * T;
-          for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = 2.5;
-          for (let k = 0; k < 2; k++) this.spawn('brute', this.wave, e.path, Math.max(0, e.dist - 20 - k * 15));
+          for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = 2;
+          this.spawn('brute', this.wave, e.path, Math.max(0, e.dist - 20));
           this.fx({ e: 'stomp', x: e.x | 0, y: e.y | 0, r });
         }
       }

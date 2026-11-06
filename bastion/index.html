@@ -323,7 +323,7 @@ const ENEMIES = {
   // Hardcore bosses
   necro: { name: 'Necromancer', hp: 1100, speed: 0.55, armor: 2, bounty: 250, size: 22, color: '#3b2a4f', boss: true, special: true, leak: 8 },
   bones: { name: 'Skeleton', hp: 55, speed: 1.35, armor: 0, bounty: 1, size: 10, color: '#e9e4d4' },
-  phantom: { name: 'Phantom', hp: 1200, speed: 0.8, armor: 0, bounty: 300, size: 22, color: '#9ff0ff', boss: true, special: true, leak: 5 },
+  phantom: { name: 'Phantom', hp: 850, speed: 0.65, armor: 0, bounty: 300, size: 22, color: '#9ff0ff', boss: true, special: true, leak: 5 },
   // Hardcore-only enemies, each with a trick
   blinker: { name: 'Blinker', hp: 70, speed: 1.4, armor: 0, bounty: 6, size: 10, color: '#b76bff', tip: 'teleports forward every few seconds. Slow it with Frost!' },
   shellback: { name: 'Shellback', hp: 260, speed: 0.85, armor: 2, bounty: 12, size: 15, color: '#4f9a54', shell: true, tip: 'barely hurt by explosions, fire and poison. Use Bolt, Sniper or Railgun!' },
@@ -664,11 +664,11 @@ class Sim {
       }
       if (e.type === 'phantom' && (e.phaseT -= dt) <= 0) {
         if (e.hidden) {
-          e.hidden = false; e.phaseT = 6;
-          e.dist = Math.min(this.pathOf(e).total - 40, e.dist + 3 * T);
+          e.hidden = false; e.phaseT = 7;
+          e.dist = Math.min(this.pathOf(e).total - 40, e.dist + 1.5 * T);
           this.placeEnemy(e);
           this.fx({ e: 'blink', x: e.x | 0, y: e.y | 0 });
-        } else { e.hidden = true; e.phaseT = 2.5; this.fx({ e: 'vanish', x: e.x | 0, y: e.y | 0 }); }
+        } else { e.hidden = true; e.phaseT = 1.8; this.fx({ e: 'vanish', x: e.x | 0, y: e.y | 0 }); }
       }
       if (e.type === 'emperor') {
         const guarded = this.enemies.some((o) => o.orbit === e.id);

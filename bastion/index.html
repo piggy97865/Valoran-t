@@ -240,6 +240,7 @@ function mulberry(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; le
 const PCOLORS = ['#ffcf4a', '#4ad6ff', '#ff6ad5', '#7dff7a'];
 const TEST_MODE = !!window.BASTION_TEST || new URLSearchParams(location.search).has('test');
 let enemyById = new Map();
+let shakeT = 0;
 
 /* =========================================================================
    Content: maps, towers, enemies, waves
@@ -530,7 +531,7 @@ class Sim {
     if (E.tip && !this.seen.has(type)) { this.seen.add(type); this.fx({ e: 'intro', type }); }
     if (type === 'phantom') { e.phaseT = 5; e.hidden = false; }
     if (type === 'emperor') { e.ephase = 0; e.portalT = 6; e.eclipseT = 9; e.laserT = 3; e.baseSpeed = e.speed; this.fx({ e: 'emperor', x: e.x | 0, y: e.y | 0 }); }
-    if (type === 'ascended') { e.laserT = 2.5; e.judgeT = 6; e.orbT = 4; e.baseSpeed = e.speed; }
+    if (type === 'ascended') { e.laserT = 2.5; e.judgeT = 6; e.orbT = 4; e.descentT = 7; e.skyPhase = 0; e.skyH = 0; e.rain = 0; e.baseSpeed = e.speed; }
     if (type === 'titan') { e.phase = 0; e.armor = 10; e.stompT = 6; e.baseSpeed = e.speed; e.missileT = 3; }
     this.placeEnemy(e);
     this.enemies.push(e);
@@ -692,6 +693,34 @@ class Sim {
       }
       if (e.type === 'ascended') {
         if (!e.enraged && e.hp < e.maxHp * 0.4) { e.enraged = true; e.speed = e.baseSpeed * 1.4; this.fx({ e: 'emphase', x: e.x | 0, y: e.y | 0, ph: 3 }); }
+        // --- Heavenly Descent: fly up out of reach, slam down further along the road, then rain beams of light ---
+        const path = this.pathOf(e);
+        if (!e.skyPhase && (e.descentT -= dt) <= 0) {
+          e.skyPhase = 1; e.skyT = 0; e.hidden = true;
+          e.landDist = Math.min(path.total - 60, e.dist + 3.5 * T);
+          const lp = posOnPath(path, e.landDist);
+          this.fx({ e: 'rise', x: e.x | 0, y: e.y | 0, tx: lp.x | 0, ty: lp.y | 0 });
+        }
+        if (e.skyPhase === 1) { // rising and hanging in the sky
+          e.skyT += dt; e.skyH = Math.min(1, e.skyT / 0.9);
+          if (e.skyT > 1.9) { e.skyPhase = 2; e.skyT = 0; }
+        } else if (e.skyPhase === 2) { // diving down
+          e.skyT += dt; e.skyH = Math.max(0, 1 - e.skyT / 0.35);
+          if (e.skyH <= 0) {
+            e.skyPhase = 0; e.hidden = false; e.descentT = e.enraged ? 11 : 15;
+            e.dist = Math.max(e.dist, e.landDist); this.placeEnemy(e);
+            const r = 3 * T;
+            for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = Math.max(tw.stun || 0, 3);
+            this.fx({ e: 'slam', x: e.x | 0, y: e.y | 0, r });
+            e.rain = 8; e.rainT = 0.3;
+          }
+        }
+        if (e.rain > 0 && (e.rainT -= dt) <= 0) { // beams of light rain down on towers
+          e.rain--; e.rainT = 0.22;
+          const pool = this.towers.filter((tw) => !(tw.stun > 0)), tw = pool[Math.floor(Math.random() * pool.length)];
+          if (tw) { tw.stun = 2.5; this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
+        }
+        if (e.skyPhase) { e.laserT = Math.max(e.laserT, 0.5); e.judgeT = Math.max(e.judgeT, 0.5); e.orbT = Math.max(e.orbT, 0.5); }
         // golden eye lasers
         if ((e.laserT -= dt) <= 0) {
           e.laserT = e.enraged ? 2 : 2.6;
@@ -2067,6 +2096,16 @@ function drawEnemy(c, e, t) {
       const G1 = enr ? '#ffb070' : '#ffe9a0', G2 = enr ? '#ff7a3a' : '#ffcf4a', G3 = enr ? '#c0401a' : '#c9932a';
       const glowRGB = enr ? '255,150,90' : '255,235,170';
       const fl = Math.sin(t * 1.5 + e.id) * 4;
+      const skyH = e.skyH != null ? e.skyH : (e.shieldF || 0);
+      if (skyH > 0) { // flying up: a column of light marks where he left; he rises and shrinks into the distance
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const cg0 = c.createLinearGradient(-30, 0, 30, 0); cg0.addColorStop(0, `rgba(${glowRGB},0)`); cg0.addColorStop(0.5, `rgba(${glowRGB},${0.6 * skyH})`); cg0.addColorStop(1, `rgba(${glowRGB},0)`);
+        c.fillStyle = cg0; c.fillRect(-30, -e.y - 20, 60, e.y + 30);
+        c.restore();
+        c.translate(0, -skyH * 380);
+        const sc2 = 1 - skyH * 0.45; c.scale(sc2, sc2);
+        c.globalAlpha = 1 - skyH * 0.35;
+      }
       // --- magic circles under his feet (counter-rotating, with star patterns) ---
       c.save(); c.translate(0, s * 0.6); c.scale(1, 0.38);
       for (const [R, spd, w] of [[s * 2.0, 0.45, 2.5], [s * 1.4, -0.8, 2]]) {
@@ -2354,6 +2393,21 @@ function addFx(e, view) {
       banner('HE HAS ASCENDED!', 'The Emperor returns as a god. Beat him one last time!');
       Sound.play('clear'); setTimeout(() => Sound.play('boss'), 300);
       break;
+    case 'rise':
+      effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 1.0 });
+      effects.push({ k: 'target', x: e.tx, y: e.ty, t: 0, T: 2.25 });
+      effects.push({ k: 'text', x: e.x, y: e.y - 60, text: 'HEAVENLY DESCENT!', t: 0, T: 1.6, col: '#fff3c0' });
+      Sound.play('clear');
+      break;
+    case 'slam':
+      effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.8, col: '255,235,170', fill: true });
+      effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r * 1.5, t: 0, T: 1.1, col: '255,255,255' });
+      effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 0.8 });
+      effects.push({ k: 'flashw', t: 0, T: 0.5 });
+      for (let i = 0; i < 24; i++) { const ang = (i / 24) * TAU, sp = 160 + Math.random() * 120; effects.push({ k: 'dot', x: e.x, y: e.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, t: 0, T: 0.7, r: 3, hex: '#fff3c0' }); }
+      shakeT = 0.6;
+      Sound.play('boom'); setTimeout(() => Sound.play('boom'), 90);
+      break;
     case 'judge':
       effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 1.1, small: 1 });
       effects.push({ k: 'text', x: e.x, y: e.y - 26, text: 'JUDGED!', t: 0, T: 1.1, col: '#ffe9a0' });
@@ -2407,6 +2461,16 @@ function drawEffects(c, dt) {
       g.addColorStop(0, 'rgba(255,230,150,0)'); g.addColorStop(0.5, `rgba(255,248,220,${0.85 * a2})`); g.addColorStop(1, 'rgba(255,230,150,0)');
       c.fillStyle = g; c.fillRect(f.x - w, -50, w * 2, f.y + 70);
       c.fillStyle = `rgba(255,240,190,${0.6 * a2})`; c.beginPath(); c.ellipse(f.x, f.y, w * 1.2, w * 0.45, 0, 0, TAU); c.fill();
+      c.restore();
+    } else if (f.k === 'target') { // where the Ascended Emperor will land
+      const pul = 0.5 + 0.5 * Math.sin(f.t * 14);
+      c.save(); c.translate(f.x, f.y); c.scale(1, 0.55);
+      c.strokeStyle = `rgba(255,225,130,${0.6 + 0.4 * pul})`; c.lineWidth = 3;
+      c.beginPath(); c.arc(0, 0, 120 * (1 - u * 0.6), 0, TAU); c.stroke();
+      c.beginPath(); c.arc(0, 0, 48, 0, TAU); c.stroke();
+      c.rotate(f.t * 2);
+      for (let k = 0; k < 4; k++) { c.rotate(Math.PI / 2); c.beginPath(); c.moveTo(56, 0); c.lineTo(90, 0); c.stroke(); }
+      c.fillStyle = `rgba(255,240,180,${0.15 + 0.15 * pul})`; c.beginPath(); c.arc(0, 0, 48, 0, TAU); c.fill();
       c.restore();
     } else if (f.k === 'flashw') {
       c.fillStyle = `rgba(255,250,230,${0.7 * (1 - u)})`; c.fillRect(0, 0, WW, WH);
@@ -2695,6 +2759,7 @@ function render(dt) {
   const v = game.view;
   ctx.save();
   ctx.translate(ox, oy); ctx.scale(scale, scale);
+  if (shakeT > 0) { shakeT -= dt; const m = 9 * shakeT; ctx.translate((Math.random() - 0.5) * m * 2, (Math.random() - 0.5) * m * 2); }
   const layer = mapLayer(game.mapId);
   ctx.drawImage(layer.cv, 0, 0, WW, WH);
   // Placement grid + preview
@@ -2870,7 +2935,7 @@ function render(dt) {
       ctx.font = '15px "Lilita One", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
       const ph = boss.type === 'titan' ? (boss.hp / boss.maxHp > 0.66 ? ' · Armor 2/2' : boss.hp / boss.maxHp > 0.33 ? ' · Armor 1/2' : ' · ARMOR BROKEN') : '';
       const imm = boss.type === 'emperor' && v.enemies.some((o) => o.orbit === boss.id);
-      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : '') + (boss.hidden || boss.hid ? ' (invisible)' : '') + (imm ? ' (IMMUNE: break the crystals!)' : '') + ph, WW / 2, y + 13);
+      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : '') + (boss.hidden || boss.hid ? (boss.type === 'ascended' ? ' (in the sky!)' : ' (invisible)') : '') + (imm ? ' (IMMUNE: break the crystals!)' : '') + ph, WW / 2, y + 13);
       ctx.fillStyle = '#3a1e24'; ctx.fillRect(x, y + 19, w, 10);
       ctx.fillStyle = E.color; ctx.fillRect(x, y + 19, w * f, 10);
       const sf = boss.shieldMax ? boss.shield / boss.shieldMax : boss.shieldF || 0;
@@ -3149,7 +3214,7 @@ const net = {
       t: 'snap',
       st: [s.wave, s.lives, s.state, s.next == null ? -1 : +s.next.toFixed(1), s.speed, s.paused ? 1 : 0, s.canCallWave() ? 1 : 0, s.endless ? 1 : 0, s.final],
       gold: s.gold,
-      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0) | (e.enraged ? 4 : 0) | (e.hidden ? 8 : 0), +e.a.toFixed(2), e.shieldMax ? Math.round((e.shield / e.shieldMax) * 100) : 0, e.orbit || 0]),
+      e: s.enemies.map((e) => [e.id, ENEMY_TYPES.indexOf(e.type), Math.round(e.x), Math.round(e.y), Math.round((e.hp / e.maxHp) * 1000), (e.slowT > 0 ? 1 : 0) | (e.burnT > 0 ? 2 : 0) | (e.enraged ? 4 : 0) | (e.hidden ? 8 : 0), +e.a.toFixed(2), e.shieldMax ? Math.round((e.shield / e.shieldMax) * 100) : e.skyH ? Math.round(e.skyH * 100) : 0, e.orbit || 0]),
       p: s.projectiles.map((p) => [p.id, PROJ_KINDS.indexOf(p.kind), Math.round(p.x), Math.round(p.y), Math.round(p.h || 0), +(p.a || 0).toFixed(2)]),
       tw: s.towers.map((t) => [t.id, TOWER_KINDS.indexOf(t.kind), t.tx, t.ty, t.level, pidx(t.owner), +t.angle.toFixed(2), t.mode, t.beam || 0, t.invested, t.kills || 0, Math.round((t.buff - 1) * 100), Math.round(t.dealt || 0), t.stun > 0 ? 1 : 0]),
       c: s.clouds.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.r), +(c.t / c.T).toFixed(2)]),

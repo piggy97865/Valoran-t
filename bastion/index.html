@@ -127,6 +127,7 @@
     <div class="row" id="speed-row">
       <button data-speed="1" class="on">1×</button><button data-speed="2">2×</button><button data-speed="3">3×</button>
       <button id="pause-btn" title="Pause (Esc)">❚❚</button>
+      <button id="music-btn" title="Music on/off (M)">♪</button>
     </div>
     <button id="wave-btn" class="primary">Start wave 1</button>
   </div>
@@ -166,6 +167,7 @@
   <div class="row" style="justify-content:center">
     <label class="f">Name <input type="text" id="name" maxlength="14" placeholder="Defender"></label>
     <label class="f">Volume <input type="range" id="vol" min="0" max="100"></label>
+    <label class="f">Music <input type="range" id="mvol" min="0" max="100"></label>
   </div>
 </section>
 
@@ -241,6 +243,7 @@ const PCOLORS = ['#ffcf4a', '#4ad6ff', '#ff6ad5', '#7dff7a'];
 const TEST_MODE = !!window.BASTION_TEST || new URLSearchParams(location.search).has('test');
 let enemyById = new Map();
 let shakeT = 0;
+let cinematicUntil = 0;
 
 /* =========================================================================
    Content: maps, towers, enemies, waves
@@ -1180,56 +1183,179 @@ function turn(a, b, max) { let d = ((b - a + Math.PI * 3) % TAU) - Math.PI; retu
    Audio
    ========================================================================= */
 const Sound = {
-  ctx: null, master: null, noise: null, volume: store.get('volume', 55) / 100, last: {},
+  ctx: null, master: null, sfx: null, verb: null, noise: null, volume: store.get('volume', 55) / 100, last: {},
   init() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-    this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.volume; this.master.connect(this.ctx.destination);
-    const len = this.ctx.sampleRate; this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const d = this.noise.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const c = (this.ctx = new AC());
+    // master -> compressor -> speakers, so lots of sounds at once don't distort
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+    this.master = c.createGain(); this.master.gain.value = this.volume;
+    this.master.connect(comp).connect(c.destination);
+    this.sfx = c.createGain(); this.sfx.gain.value = 0.9; this.sfx.connect(this.master);
+    // a shared reverb ("big hall") for booms, magic and music
+    this.verb = c.createConvolver();
+    const len = c.sampleRate * 2.6, ir = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+    this.verb.buffer = ir;
+    const vg = c.createGain(); vg.gain.value = 0.55; this.verb.connect(vg).connect(this.master);
+    const nl = c.sampleRate * 2; this.noise = c.createBuffer(1, nl, c.sampleRate);
+    const nd = this.noise.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = Math.random() * 2 - 1;
+    Music.init();
   },
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; store.set('volume', Math.round(v * 100)); },
   ok(name, gap) { const now = performance.now(); if (this.last[name] && now - this.last[name] < gap) return false; this.last[name] = now; return !!this.ctx; },
-  tone(f, dur, type, vol, slide) {
-    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+  // building blocks ------------------------------------------------------
+  out(node, wet) { node.connect(this.sfx); if (wet) { const g = this.ctx.createGain(); g.gain.value = wet; node.connect(g).connect(this.verb); } },
+  tone(f, dur, type, vol, slide, wet = 0, at = 0) {
+    const t = this.ctx.currentTime + at, o = this.ctx.createOscillator(), g = this.ctx.createGain();
     o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.master); o.start(t); o.stop(t + dur + 0.02);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); this.out(g, wet); o.start(t); o.stop(t + dur + 0.05);
   },
-  hiss(dur, f, vol, type = 'lowpass', q = 0.7) {
-    const t = this.ctx.currentTime, s = this.ctx.createBufferSource(), fl = this.ctx.createBiquadFilter(), g = this.ctx.createGain();
-    s.buffer = this.noise; fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+  hiss(dur, f, vol, type = 'lowpass', q = 0.7, wet = 0, at = 0, fEnd) {
+    const t = this.ctx.currentTime + at, s = this.ctx.createBufferSource(), fl = this.ctx.createBiquadFilter(), g = this.ctx.createGain();
+    s.buffer = this.noise; s.loop = true; fl.type = type; fl.frequency.setValueAtTime(f, t); if (fEnd) fl.frequency.exponentialRampToValueAtTime(fEnd, t + dur); fl.Q.value = q;
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(fl).connect(g).connect(this.master); s.start(t); s.stop(t + dur + 0.05);
+    s.connect(fl).connect(g); this.out(g, wet); s.start(t, Math.random()); s.stop(t + dur + 0.05);
   },
+  boomFx(size, wet) { // layered explosion: sub thump + crack + rumble tail
+    this.tone(110 * size, 0.45 * size, 'sine', 0.55, 32, wet);
+    this.hiss(0.12, 3500, 0.35, 'bandpass', 0.8, wet);
+    this.hiss(0.7 * size, 900, 0.45, 'lowpass', 0.6, wet, 0, 120);
+  },
+  chord(freqs, dur, type, vol, wet, at = 0, spread = 0) { freqs.forEach((f, i) => this.tone(f, dur, type, vol, 0, wet, at + i * spread)); },
   play(name) {
+    if (!this.ctx) return;
     switch (name) {
-      case 'bolt': if (this.ok(name, 60)) this.hiss(0.08, 3000, 0.08, 'highpass'); break;
-      case 'snipe': if (this.ok(name, 60)) { this.tone(1800, 0.12, 'square', 0.05, 200); this.hiss(0.2, 2500, 0.12, 'bandpass', 1); } break;
-      case 'rail': if (this.ok(name, 80)) { this.tone(2400, 0.25, 'sawtooth', 0.05, 300); this.hiss(0.15, 5000, 0.08, 'highpass'); } break;
-      case 'launch': if (this.ok(name, 90)) this.hiss(0.3, 1500, 0.08, 'bandpass', 0.7); break;
-      case 'pop': if (this.ok(name, 60)) { this.hiss(0.15, 900, 0.12); } break;
-      case 'splat': if (this.ok(name, 90)) this.tone(160, 0.2, 'sine', 0.1, 70); break;
-      case 'coins': [1300, 1700, 2100].forEach((f, i) => setTimeout(() => this.tone(f, 0.08, 'square', 0.03), i * 70)); break;
-      case 'cannon': if (this.ok(name, 80)) { this.tone(120, 0.18, 'square', 0.08, 50); this.hiss(0.15, 800, 0.1); } break;
-      case 'boom': if (this.ok(name, 70)) { this.hiss(0.35, 500, 0.22); this.tone(80, 0.3, 'sine', 0.2, 35); } break;
-      case 'thump': if (this.ok(name, 100)) this.tone(90, 0.2, 'sine', 0.2, 60); break;
-      case 'zap': if (this.ok(name, 60)) { this.hiss(0.12, 4000, 0.09, 'bandpass', 2); this.tone(900, 0.1, 'sawtooth', 0.04, 300); } break;
-      case 'frost': if (this.ok(name, 120)) this.tone(1500, 0.25, 'sine', 0.035, 900); break;
-      case 'die': if (this.ok(name, 40)) this.tone(500 + Math.random() * 200, 0.08, 'triangle', 0.06, 200); break;
-      case 'gold': if (this.ok(name, 90)) this.tone(1300, 0.07, 'square', 0.025, 1700); break;
-      case 'build': this.tone(300, 0.08, 'square', 0.08, 500); this.hiss(0.1, 1200, 0.06); break;
-      case 'up': this.tone(500, 0.1, 'triangle', 0.1, 900); setTimeout(() => this.tone(900, 0.15, 'triangle', 0.1, 1300), 80); break;
-      case 'sell': this.tone(900, 0.1, 'triangle', 0.08, 400); break;
-      case 'leak': if (this.ok(name, 200)) this.tone(200, 0.4, 'sawtooth', 0.12, 80); break;
-      case 'wave': this.tone(392, 0.18, 'triangle', 0.12); setTimeout(() => this.tone(523, 0.3, 'triangle', 0.12), 150); break;
-      case 'boss': this.tone(110, 0.9, 'sawtooth', 0.12, 70); setTimeout(() => this.tone(98, 0.9, 'sawtooth', 0.12, 60), 400); break;
-      case 'clear': [523, 659, 784].forEach((f, i) => setTimeout(() => this.tone(f, 0.2, 'triangle', 0.1), i * 90)); break;
-      case 'rumble': if (this.ctx) { this.tone(55, 2.2, 'sawtooth', 0.12, 35); this.hiss(2.0, 200, 0.18); } break;
-      case 'choir': if (this.ctx) { [392, 494, 587, 784].forEach((f, i) => setTimeout(() => this.tone(f, 2.4, 'sine', 0.07), i * 120)); this.hiss(1.5, 6000, 0.05, 'highpass'); } break;
-      case 'ping': this.tone(1200, 0.15, 'sine', 0.1); setTimeout(() => this.tone(1600, 0.2, 'sine', 0.08), 100); break;
-      case 'error': this.tone(180, 0.15, 'square', 0.06); break;
+      case 'bolt': if (this.ok(name, 55)) { this.tone(1400 + Math.random() * 300, 0.06, 'triangle', 0.07, 500); this.hiss(0.07, 4500, 0.06, 'highpass'); } break;
+      case 'snipe': if (this.ok(name, 60)) { this.tone(2200, 0.05, 'square', 0.08, 300); this.hiss(0.35, 2600, 0.22, 'bandpass', 1.2, 0.35, 0, 600); this.tone(90, 0.3, 'sine', 0.3, 40); } break;
+      case 'cannon': if (this.ok(name, 70)) { this.tone(140, 0.25, 'sine', 0.4, 45); this.hiss(0.18, 1400, 0.22, 'lowpass', 0.8, 0.15); } break;
+      case 'boom': if (this.ok(name, 70)) this.boomFx(1, 0.35); break;
+      case 'thump': if (this.ok(name, 100)) { this.tone(95, 0.28, 'sine', 0.35, 50); this.hiss(0.12, 600, 0.12); } break;
+      case 'zap': if (this.ok(name, 60)) { for (let i = 0; i < 4; i++) this.hiss(0.05, 3000 + Math.random() * 4000, 0.12, 'bandpass', 4, 0.2, i * 0.025); this.tone(1200, 0.12, 'sawtooth', 0.05, 180); } break;
+      case 'rail': if (this.ok(name, 80)) { this.tone(180, 0.35, 'sawtooth', 0.08, 2400, 0.3); this.hiss(0.25, 6000, 0.15, 'highpass', 0.7, 0.3, 0.04); this.tone(60, 0.35, 'sine', 0.35, 30, 0, 0.03); } break;
+      case 'frost': if (this.ok(name, 120)) { this.chord([1568, 2093, 2637], 0.5, 'sine', 0.03, 0.6, 0, 0.03); this.hiss(0.4, 8000, 0.04, 'highpass', 0.7, 0.4); } break;
+      case 'launch': if (this.ok(name, 90)) { this.hiss(0.45, 900, 0.16, 'bandpass', 1.5, 0.2, 0, 3500); this.tone(300, 0.3, 'sawtooth', 0.04, 900); } break;
+      case 'pop': if (this.ok(name, 50)) { this.tone(260, 0.16, 'sine', 0.25, 70); this.hiss(0.14, 1800, 0.18, 'lowpass', 0.8, 0.15); } break;
+      case 'splat': if (this.ok(name, 90)) { this.tone(220, 0.22, 'sine', 0.18, 60); this.hiss(0.2, 700, 0.15, 'bandpass', 2, 0.1); } break;
+      case 'die': if (this.ok(name, 40)) { this.tone(700 + Math.random() * 300, 0.09, 'triangle', 0.08, 180); this.hiss(0.05, 2000, 0.05, 'bandpass', 2); } break;
+      case 'gold': case 'coins': if (this.ok(name, 80)) { this.tone(1975, 0.18, 'sine', 0.06, 0, 0.3); this.tone(2637, 0.25, 'sine', 0.05, 0, 0.3, 0.06); this.tone(3951, 0.3, 'sine', 0.03, 0, 0.3, 0.12); } break;
+      case 'build': this.tone(160, 0.14, 'square', 0.12, 80); this.hiss(0.1, 1500, 0.12, 'lowpass'); this.chord([523, 784], 0.15, 'triangle', 0.06, 0.2, 0.06, 0.05); break;
+      case 'up': this.chord([523, 659, 784, 1047], 0.3, 'triangle', 0.09, 0.35, 0, 0.06); this.hiss(0.4, 7000, 0.05, 'highpass', 0.7, 0.4, 0.15); break;
+      case 'sell': this.chord([880, 659, 523], 0.18, 'triangle', 0.08, 0.2, 0, 0.06); break;
+      case 'leak': if (this.ok(name, 250)) { this.tone(440, 0.18, 'square', 0.1, 0, 0.2); this.tone(330, 0.3, 'square', 0.1, 0, 0.2, 0.16); } break;
+      case 'wave': this.chord([196, 294, 392], 0.6, 'sawtooth', 0.05, 0.4, 0, 0); this.chord([262, 392, 523], 0.9, 'sawtooth', 0.06, 0.45, 0.28, 0); this.tone(65, 0.5, 'sine', 0.3, 40, 0.3, 0.28); break;
+      case 'boss': if (this.ok(name, 250)) { this.chord([55, 82, 110, 131], 1.8, 'sawtooth', 0.07, 0.6); this.tone(41, 1.6, 'sine', 0.45, 30, 0.5); this.hiss(1.4, 300, 0.15, 'lowpass', 0.7, 0.5); } break;
+      case 'clear': this.chord([523, 659, 784], 0.3, 'triangle', 0.09, 0.4, 0, 0.09); this.chord([1047], 0.7, 'triangle', 0.09, 0.5, 0.27); this.hiss(0.6, 9000, 0.04, 'highpass', 0.7, 0.5, 0.27); break;
+      case 'ping': this.tone(1320, 0.25, 'sine', 0.1, 0, 0.4); this.tone(1760, 0.35, 'sine', 0.08, 0, 0.4, 0.1); break;
+      case 'error': this.tone(180, 0.12, 'square', 0.06, 140); break;
+      case 'rumble': this.tone(45, 3.0, 'sawtooth', 0.12, 28, 0.5); this.hiss(2.8, 220, 0.25, 'lowpass', 0.6, 0.6); this.tone(36, 3.0, 'sine', 0.35, 30, 0.4); break;
+      case 'choir': { // a heavenly "aaah"
+        const t = this.ctx.currentTime;
+        for (const [f, d] of [[392, 0], [494, 0.15], [587, 0.3], [784, 0.45], [988, 0.6]]) {
+          for (const det of [-6, 6]) {
+            const o = this.ctx.createOscillator(), f1 = this.ctx.createBiquadFilter(), f2 = this.ctx.createBiquadFilter(), g = this.ctx.createGain();
+            o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+            f1.type = 'bandpass'; f1.frequency.value = 800; f1.Q.value = 6; f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 6;
+            g.gain.setValueAtTime(0.0001, t + d); g.gain.linearRampToValueAtTime(0.05, t + d + 0.6); g.gain.linearRampToValueAtTime(0.0001, t + d + 3.2);
+            o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); this.out(g, 0.9); o.start(t + d); o.stop(t + d + 3.3);
+          }
+        }
+        this.hiss(2.5, 9000, 0.03, 'highpass', 0.7, 0.8);
+        break;
+      }
     }
+  },
+};
+
+/* =========================================================================
+   Music: a small synth band that plays along and changes with the action
+   ========================================================================= */
+const MIDI = (n) => 440 * Math.pow(2, (n - 69) / 12);
+const SONGS = {
+  calm: { bpm: 104, root: 45, chords: [[0, 3, 7], [-4, 0, 3], [-9, -5, -2], [-2, 2, 5]],
+    kick: [0, 8, 10], snare: [4, 12], hat: [2, 6, 10, 14], bass: [0, 3, 6, 8, 11, 14], arp: true, pad: 0.6, lead: false },
+  boss: { bpm: 140, root: 38, chords: [[0, 3, 7], [-4, 0, 3], [5, 8, 12], [7, 11, 14]],
+    kick: [0, 3, 6, 8, 11, 14], snare: [4, 12], hat: 'all', bass: [0, 2, 4, 6, 8, 10, 12, 14], stab: [0, 10], pad: 0.5, arp: true },
+  void: { bpm: 150, root: 40, chords: [[0, 3, 7], [-4, 0, 3], [-7, -4, 0], [-1, 3, 6]],
+    kick: [0, 3, 6, 8, 10, 11, 14], snare: [4, 12], hat: 'all', tom: [13, 15], bass: [0, 1, 3, 4, 6, 8, 9, 11, 12, 14], stab: [0, 6, 12], choir: true, pad: 0.4, bell: true },
+  ascended: { bpm: 150, root: 40, chords: [[0, 4, 7], [-3, 0, 4], [5, 9, 12], [7, 11, 14]],
+    kick: [0, 4, 8, 10, 12], snare: [4, 12], hat: 'all', tom: [14, 15], bass: [0, 2, 3, 6, 8, 10, 11, 14], choir: true, pad: 0.6, bell: true, stab: [0, 8] },
+};
+const Music = {
+  on: store.get('music', true), vol: store.get('musicVol', 60) / 100,
+  bus: null, cur: null, want: null, step: 0, nextT: 0, timer: null, duck: 1,
+  init() {
+    const c = Sound.ctx; if (!c || this.bus) return;
+    this.bus = c.createGain(); this.bus.gain.value = this.on ? this.vol * 0.55 : 0; this.bus.connect(Sound.master);
+    this.wet = c.createGain(); this.wet.gain.value = 0.35; this.bus.connect(this.wet).connect(Sound.verb);
+  },
+  setVol(v) { this.vol = v; store.set('musicVol', Math.round(v * 100)); this.apply(); },
+  toggle() { this.on = !this.on; store.set('music', this.on); this.apply(); if (typeof updateMusicBtn === 'function') updateMusicBtn(); },
+  apply() { if (this.bus) this.bus.gain.setTargetAtTime(this.on ? this.vol * 0.55 * this.duck : 0, Sound.ctx.currentTime, 0.3); },
+  setDuck(d) { if (d !== this.duck) { this.duck = d; this.apply(); } },
+  play(song) { // song name or null to stop
+    if (!Sound.ctx || !this.bus) return;
+    this.want = song;
+    if (!song) { if (this.timer) { clearInterval(this.timer); this.timer = null; } this.cur = null; return; }
+    if (!this.timer) { this.cur = song; this.step = 0; this.nextT = Sound.ctx.currentTime + 0.1; this.timer = setInterval(() => this.tick(), 25); }
+  },
+  tick() {
+    const c = Sound.ctx;
+    while (this.nextT < c.currentTime + 0.15) {
+      if (this.step % 16 === 0 && this.want && this.want !== this.cur) { this.cur = this.want; this.step = 0; } // switch songs on a bar line
+      const S = SONGS[this.cur];
+      this.note(S, this.step, this.nextT);
+      this.nextT += 60 / S.bpm / 4;
+      this.step = (this.step + 1) % 64;
+    }
+  },
+  env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); },
+  osc(type, f, t, dur, peak, a = 0.005, filt, q = 1, det = 0) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); o.detune.value = det;
+    this.env(g, t, a, peak, dur);
+    if (filt) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = q; fl.frequency.setValueAtTime(filt[0], t); fl.frequency.exponentialRampToValueAtTime(filt[1], t + dur); o.connect(fl).connect(g); } else o.connect(g);
+    g.connect(this.bus); o.start(t); o.stop(t + a + dur + 0.05);
+    return o;
+  },
+  drum(kind, t, vol = 1) {
+    const c = Sound.ctx;
+    if (kind === 'kick') { const o = this.osc('sine', 150, t, 0.32, 0.9 * vol); o.frequency.exponentialRampToValueAtTime(42, t + 0.12); }
+    else if (kind === 'tom') { const o = this.osc('sine', 120, t, 0.3, 0.6 * vol); o.frequency.exponentialRampToValueAtTime(60, t + 0.25); }
+    else {
+      const s = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = Sound.noise; fl.type = kind === 'snare' ? 'bandpass' : 'highpass'; fl.frequency.value = kind === 'snare' ? 1900 : 7500; fl.Q.value = 0.8;
+      this.env(g, t, 0.002, (kind === 'snare' ? 0.45 : 0.12) * vol, kind === 'snare' ? 0.17 : 0.04);
+      s.connect(fl).connect(g).connect(this.bus); s.start(t, Math.random()); s.stop(t + 0.25);
+      if (kind === 'snare') this.osc('triangle', 190, t, 0.1, 0.25 * vol);
+    }
+  },
+  note(S, step, t) {
+    const bar = Math.floor(step / 16), st = step % 16, ch = S.chords[bar % S.chords.length], root = S.root, spb = 60 / S.bpm;
+    if (S.kick.includes(st)) this.drum('kick', t);
+    if (S.snare.includes(st)) this.drum('snare', t);
+    if (S.hat === 'all' ? true : S.hat.includes(st)) this.drum('hat', t, st % 2 ? 0.6 : 1);
+    if (S.tom && S.tom.includes(st) && bar % 2 === 1) this.drum('tom', t);
+    if (S.bass.includes(st)) { const n = root + ch[0] + (st % 8 === 6 && S.bpm > 120 ? 12 : 0); this.osc('sawtooth', MIDI(n), t, spb * 0.45, 0.22, 0.005, [1400, 160], 4); }
+    if (st === 0) { // pad chord for the whole bar
+      for (const iv of ch) for (const det of [-9, 9]) this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 4, 0.035 * S.pad, 0.5, [1600, 600], 0.5, det);
+    }
+    if (S.arp && st % 2 === 0) { const iv = ch[(st / 2) % ch.length] + (st >= 8 ? 12 : 0); this.osc('square', MIDI(root + 36 + iv), t, spb * 0.3, 0.035, 0.003, [3000, 500], 2); }
+    if (S.stab && S.stab.includes(st)) for (const iv of ch) for (const det of [-12, 12]) this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 0.5, 0.05, 0.01, [4500, 700], 1.5, det);
+    if (S.choir && st === 0) { // "aah" choir over the bar
+      const c = Sound.ctx;
+      for (const iv of ch) {
+        const o = c.createOscillator(), f1 = c.createBiquadFilter(), f2 = c.createBiquadFilter(), g = c.createGain();
+        o.type = 'sawtooth'; o.frequency.value = MIDI(root + 36 + iv);
+        f1.type = 'bandpass'; f1.frequency.value = 750; f1.Q.value = 5; f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 5;
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.09, t + spb); g.gain.linearRampToValueAtTime(0.0001, t + spb * 4.2);
+        o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(this.bus); o.start(t); o.stop(t + spb * 4.3);
+      }
+    }
+    if (S.bell && (st === 0 || st === 6 || st === 12)) { const n = root + 48 + ch[(st / 6) % ch.length]; this.osc('sine', MIDI(n), t, spb * 2.5, 0.06); this.osc('sine', MIDI(n) * 2.76, t, spb * 1.2, 0.02); }
   },
 };
 
@@ -2425,6 +2551,7 @@ function addFx(e, view) {
       break;
     }
     case 'empfall':
+      cinematicUntil = performance.now() + 9000;
       effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 6.2, gameTime: true });
       banner('The Void Emperor has fallen', '');
       shakeT = 1.1;
@@ -2479,7 +2606,7 @@ function addFx(e, view) {
 function gameDt(dt) {
   if (!game) return dt;
   if (game.view.paused || (game.mode === 'solo' && $('scr-pause').classList.contains('show'))) return 0;
-  return dt * (game.view.speed || 1);
+  return dt; // the death scene runs in real time (the game drops to 1x while it plays)
 }
 function drawEffects(c, dt) {
   for (let i = effects.length - 1; i >= 0; i--) {
@@ -2727,6 +2854,7 @@ addEventListener('keydown', (ev) => {
     return;
   }
   if (k === ' ') { ev.preventDefault(); if (!$('scr-pause').classList.contains('show')) act({ a: 'wave' }); return; }
+  if (k === 'm' || k === 'M') { Sound.init(); Music.toggle(); return; }
   if ((k === 'f' || k === 'F') && ui.mouse) { act({ a: 'ping', x: ui.mouse.x, y: ui.mouse.y }); return; }
   const sel = selectedTower();
   if (sel && sel.owner === game.me) {
@@ -3073,7 +3201,9 @@ function frame(now) {
     if (game.sim) {
       const s = game.sim;
       if (!s.paused && !(game.mode === 'solo' && $('scr-pause').classList.contains('show'))) {
-        acc += dt * s.speed;
+        // the Emperor's death and return always play at 1x, whatever speed you picked
+        const cinematic = s.pendingSpawns.some((ps) => ps.type === 'ascended') || s.enemies.some((e) => e.type === 'ascended' && e.skyPhase === 3);
+        acc += dt * (cinematic ? 1 : s.speed);
         let n = 0;
         while (acc >= STEP && n < 12) { s.step(STEP); acc -= STEP; n++; }
         if (n >= 12) acc = 0;
@@ -3091,7 +3221,17 @@ function frame(now) {
     }
     hudT -= dt;
     if (hudT <= 0) { hudT = 0.1; updateHud(); }
-  }
+    if (Sound.ctx) {
+      const v = game.view, has = (t) => v.enemies.some((e) => e.type === t);
+      let song = 'calm';
+      if (v.state !== 'play') song = null;
+      else if (has('ascended')) song = 'ascended';
+      else if (has('emperor') || performance.now() < cinematicUntil) song = 'void';
+      else if (v.enemies.some((e) => ENEMIES[e.type].boss)) song = 'boss';
+      Music.play(song);
+      Music.setDuck(v.paused || $('scr-pause').classList.contains('show') ? 0.35 : 1);
+    }
+  } else if (Sound.ctx) Music.play(null);
   render(dt);
   requestAnimationFrame(frame);
 }
@@ -3164,6 +3304,11 @@ $('name').value = store.get('name', '');
 $('name').addEventListener('input', () => store.set('name', $('name').value.trim()));
 $('vol').value = Math.round(Sound.volume * 100);
 $('vol').oninput = () => Sound.setVolume($('vol').value / 100);
+$('mvol').value = Math.round(Music.vol * 100);
+$('mvol').oninput = () => { Sound.init(); Music.setVol($('mvol').value / 100); if (!Music.on && Music.vol > 0) Music.toggle(); };
+function updateMusicBtn() { const b = $('music-btn'); b.classList.toggle('on', Music.on); b.style.opacity = Music.on ? 1 : 0.45; b.textContent = Music.on ? '♪' : '♪̸'; }
+$('music-btn').onclick = () => { Sound.init(); Music.toggle(); };
+updateMusicBtn();
 
 function togglePause() {
   if (!game) return;

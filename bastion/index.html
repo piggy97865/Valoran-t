@@ -338,8 +338,8 @@ const ENEMY_TYPES = Object.keys(ENEMIES);
 const DIFFS = [
   { name: 'Easy', hp: 0.45, speed: 0.85, lives: 50, gold: 450, pause: 30 },
   { name: 'Medium', hp: 0.85, speed: 1, lives: 25, gold: 350, pause: 25 },
-  { name: 'Hard', hp: 1.5, speed: 1.05, lives: 10, gold: 260, pause: 20 },
-  { name: 'Hardcore', hp: 1.55, speed: 1.06, lives: 10, gold: 290, pause: 18 },
+  { name: 'Hard', hp: 1.5, speed: 1.05, lives: 10, gold: 320, pause: 20 },
+  { name: 'Hardcore', hp: 1.55, speed: 1.06, lives: 10, gold: 310, pause: 18 },
 ];
 const FINAL_WAVE = 30; // Easy & Medium; Hard & Hardcore go to 40
 const finalWave = (diff) => (diff >= 2 ? 40 : 30);
@@ -545,7 +545,8 @@ class Sim {
     }
     this.fx({ e: 'crystals', x: emp.x | 0, y: emp.y | 0 });
   }
-  pathOf(e) { return e.flying ? this.map.flyPaths[e.path] : this.map.paths[e.path]; }
+  // Small flyers cut straight across the map; flying bosses soar above the road so towers get a fair shot.
+  pathOf(e) { return e.flying && !ENEMIES[e.type].boss ? this.map.flyPaths[e.path] : this.map.paths[e.path]; }
   placeEnemy(e) {
     const p = posOnPath(this.pathOf(e), e.dist);
     e.x = p.x - p.dy * e.ofs; e.y = p.y + p.dx * e.ofs; e.a = Math.atan2(p.dy, p.dx);

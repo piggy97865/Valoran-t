@@ -407,14 +407,14 @@ function waveGroups(n, diff, np) {
   }
   if (F > FINAL_WAVE && n === F) { // the grand finale
     add('boss', 2, 5, (at += 4));
-    if (diff === 3) add('dragon', 1, 1, (at += 3));
-    add('emperor', 1, 1, (at += 10));
+    if (diff === 3) { add('dragon', 1, 1, (at += 3)); add('emperor', 1, 1, (at += 10)); } // Hardcore: the Void Emperor
+    else add('titan', 1, 1, (at += 8)); // Hard: the Colossus
   }
   if (n > F) {
     if (n >= F + 10 && n % 5 === 0) add('dragon', 1, 1, (at += 3));
     if (n % 5 === 0) add('boss', 1 + Math.floor((n - F) / 10), 4, (at += 4));
     if (n % 10 === 0) add(special, Math.floor((n - F + 10) / 10), 8, (at += 6));
-    if (F === 40 && n % 20 === 0) add('emperor', 1, 1, (at += 8));
+    if (F === 40 && n % 20 === 0) add(diff === 3 ? 'emperor' : 'titan', 1, 1, (at += 8));
     if (diff === 3 && n % 10 === 5) { add('necro', 1, 1, (at += 3)); add('phantom', 1, 1, (at += 5)); }
   }
   return G;

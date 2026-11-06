@@ -563,6 +563,7 @@ class Sim {
       if ((ps.t -= dt) > 0) continue;
       this.pendingSpawns.splice(k, 1);
       const e = this.spawn(ps.type, ps.wave, ps.path, ps.dist || 0);
+      if (ps.type === 'ascended') { e.skyPhase = 3; e.skyT = 0; e.skyH = 1; e.hidden = true; } // descends from the sky
       this.fx({ e: 'ascend', x: e.x | 0, y: e.y | 0 });
     }
     // Spawning
@@ -705,7 +706,10 @@ class Sim {
           const lp = posOnPath(path, e.landDist);
           this.fx({ e: 'rise', x: e.x | 0, y: e.y | 0, tx: lp.x | 0, ty: lp.y | 0 });
         }
-        if (e.skyPhase === 1) { // rising and hanging in the sky
+        if (e.skyPhase === 3) { // arriving: descending slowly from the heavens in a pillar of light
+          e.skyT += dt; e.skyH = Math.max(0, 1 - e.skyT / 2.2);
+          if (e.skyH <= 0) { e.skyPhase = 0; e.hidden = false; this.fx({ e: 'landed', x: e.x | 0, y: e.y | 0 }); }
+        } else if (e.skyPhase === 1) { // rising and hanging in the sky
           e.skyT += dt; e.skyH = Math.min(1, e.skyT / 0.9);
           if (e.skyT > 1.9) { e.skyPhase = 2; e.skyT = 0; }
         } else if (e.skyPhase === 2) { // diving down
@@ -1070,11 +1074,9 @@ class Sim {
   kill(e, tw) {
     const i = this.enemies.indexOf(e);
     if (i >= 0) this.enemies.splice(i, 1);
-    if (e.type === 'emperor') { // he falls... then rises again at the start as a god
-      // His body drifts back up the road as it rises, so there's always room for the final fight.
-      const path = this.pathOf(e), riseDist = Math.min(e.dist, path.total * 0.6), rp = posOnPath(path, riseDist);
-      this.fx({ e: 'empfall', x: e.x | 0, y: e.y | 0, tx: rp.x | 0, ty: rp.y | 0 });
-      this.pendingSpawns.push({ t: 6.2, type: 'ascended', wave: this.wave, path: e.path, dist: riseDist });
+    if (e.type === 'emperor') { // he falls, his body rises into the heavens, then he descends at the start of the road
+      this.fx({ e: 'empfall', x: e.x | 0, y: e.y | 0 });
+      this.pendingSpawns.push({ t: 6.6, type: 'ascended', wave: this.wave, path: e.path, dist: 0 });
     }
     this.kills++;
     if (tw) tw.kills = (tw.kills || 0) + 1;
@@ -2423,16 +2425,22 @@ function addFx(e, view) {
       break;
     }
     case 'empfall':
-      effects.push({ k: 'fall', x: e.x, y: e.y, tx: e.tx != null ? e.tx : e.x, ty: e.ty != null ? e.ty : e.y, t: 0, T: 6.2 });
+      effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 6.2, gameTime: true });
       banner('The Void Emperor has fallen', '');
       shakeT = 1.1;
       Sound.play('boom'); setTimeout(() => Sound.play('boom'), 250); setTimeout(() => Sound.play('rumble'), 600);
       setTimeout(() => { Sound.play('choir'); }, 2700);
       break;
-    case 'ascend':
-      effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 2.2 });
+    case 'ascend': // a pillar of light strikes the start of the road and he descends in it
+      effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 2.6 });
+      effects.push({ k: 'flashw', t: 0, T: 0.6 });
+      Sound.play('choir');
+      break;
+    case 'landed':
       effects.push({ k: 'ring', x: e.x, y: e.y, r: 160, t: 0, T: 1.2, col: '255,230,150', fill: true });
-      effects.push({ k: 'flashw', t: 0, T: 0.9 });
+      effects.push({ k: 'ring', x: e.x, y: e.y, r: 240, t: 0, T: 1.4, col: '255,255,255' });
+      effects.push({ k: 'flashw', t: 0, T: 0.7 });
+      shakeT = 0.5;
       banner('HE HAS ASCENDED', 'Break the four Holy Seals to reach him!');
       Sound.play('clear'); setTimeout(() => Sound.play('boss'), 300);
       break;
@@ -2468,10 +2476,15 @@ function addFx(e, view) {
     case 'won': case 'lost': setTimeout(() => showEnd(e.e === 'won'), 900); break;
   }
 }
+function gameDt(dt) {
+  if (!game) return dt;
+  if (game.view.paused || (game.mode === 'solo' && $('scr-pause').classList.contains('show'))) return 0;
+  return dt * (game.view.speed || 1);
+}
 function drawEffects(c, dt) {
   for (let i = effects.length - 1; i >= 0; i--) {
     const f = effects[i];
-    f.t += dt;
+    f.t += f.gameTime ? gameDt(dt) : dt;
     if (f.t >= f.T) { effects.splice(i, 1); continue; }
     const u = f.t / f.T;
     if (f.k === 'ring') {
@@ -2495,11 +2508,11 @@ function drawEffects(c, dt) {
       const topple = tt < 1.4 ? ease(Math.min(1, Math.max(0, (tt - 0.5) / 0.9))) : tt < 2.6 ? 1 : 1 - ease(Math.min(1, (tt - 2.6) / 2.6));
       const rise = tt < 2.6 ? 0 : ease(Math.min(1, (tt - 2.6) / 2.6));
       const light = tt < 2.4 ? 0 : Math.min(1, (tt - 2.4) / 2.8);
-      const dissolve = tt < 5.2 ? 0 : Math.min(1, (tt - 5.2) / 1.0);
+      const dissolve = tt < 5.0 ? 0 : Math.min(1, (tt - 5.0) / 1.2);
       const jit = tt < 1.0 ? (1 - tt) * 4 : 0;
       // while rising, the body glides back along the road to where he'll ascend
-      const gx = f.x + (f.tx - f.x) * rise, gy = f.y + (f.ty - f.y) * rise;
-      const bx = gx + (Math.random() - 0.5) * jit, by = gy - 8 + 22 * topple * (1 - rise) - rise * 95 + (Math.random() - 0.5) * jit;
+      const lift = rise * 95 + dissolve * 260; // drifts up slowly, then shoots off into the heavens
+      const bx = f.x + (Math.random() - 0.5) * jit, by = f.y - 8 + 22 * topple * (1 - rise) - lift + (Math.random() - 0.5) * jit;
       // dark void burst on death
       if (tt < 1.2) {
         const r1 = 30 + tt * 160;

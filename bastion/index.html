@@ -330,8 +330,9 @@ const ENEMIES = {
   rager: { name: 'Rager', hp: 160, speed: 1.1, armor: 1, bounty: 9, size: 13, color: '#ff7a2e', tip: 'gets much faster when hurt. Finish it with big hits!' },
   titan: { name: 'Colossus', hp: 3200, speed: 0.38, armor: 0, bounty: 800, size: 34, color: '#7d8494', boss: true, special: true, leak: 10 },
   emperor: { name: 'The Void Emperor', hp: 2600, speed: 0.3, armor: 4, bounty: 2500, size: 40, color: '#2a1050', boss: true, special: true, mega: true, leak: 99 },
-  ascended: { name: 'The Ascended Emperor', hp: 4600, speed: 0.36, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
+  ascended: { name: 'The Ascended Emperor', hp: 4000, speed: 0.26, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
   voidcrystal: { name: 'Void Crystal', hp: 260, speed: 0, armor: 0, bounty: 60, size: 12, color: '#b98cff', crystal: true },
+  holyseal: { name: 'Holy Seal', hp: 200, speed: 0, armor: 0, bounty: 80, size: 13, color: '#ffe08a', crystal: true },
   dragon: { name: 'Shadow Dragon', hp: 2300, speed: 0.7, armor: 3, bounty: 350, size: 28, color: '#7a3cc0', boss: true, special: true, flying: true, leak: 8 },
 };
 const ENEMY_TYPES = Object.keys(ENEMIES);
@@ -536,17 +537,19 @@ class Sim {
     this.placeEnemy(e);
     this.enemies.push(e);
     if (type === 'emperor') this.spawnCrystals(e);
+    if (type === 'ascended') this.spawnCrystals(e, 'holyseal', 4, 96, 62);
     return e;
   }
-  spawnCrystals(emp) {
-    for (let k = 0; k < 3; k++) {
-      const c = this.spawn('voidcrystal', this.wave, emp.path, emp.dist);
-      c.orbit = emp.id; c.orbitAng = (k / 3) * TAU;
+  // Orbiting things that make a boss immune until they're all broken (Void Crystals, Holy Seals).
+  spawnCrystals(emp, type = 'voidcrystal', n = 3, rx = 78, ry = 52) {
+    for (let k = 0; k < n; k++) {
+      const c = this.spawn(type, this.wave, emp.path, emp.dist);
+      c.orbit = emp.id; c.orbitAng = (k / n) * TAU; c.orbRx = rx; c.orbRy = ry;
     }
-    this.fx({ e: 'crystals', x: emp.x | 0, y: emp.y | 0 });
+    this.fx({ e: 'crystals', x: emp.x | 0, y: emp.y | 0, holy: type === 'holyseal' ? 1 : 0 });
   }
-  // Small flyers cut straight across the map; flying bosses soar above the road so towers get a fair shot.
-  pathOf(e) { return e.flying && !ENEMIES[e.type].boss ? this.map.flyPaths[e.path] : this.map.paths[e.path]; }
+  // Everything follows the road; flyers just soar above it (only anti-air towers can hit them).
+  pathOf(e) { return this.map.paths[e.path]; }
   placeEnemy(e) {
     const p = posOnPath(this.pathOf(e), e.dist);
     e.x = p.x - p.dy * e.ofs; e.y = p.y + p.dx * e.ofs; e.a = Math.atan2(p.dy, p.dx);
@@ -579,7 +582,7 @@ class Sim {
         const par = this.enemies.find((o) => o.id === e.orbit);
         if (!par) { this.enemies.splice(i, 1); continue; }
         e.orbitAng += dt * 0.9;
-        e.x = par.x + Math.cos(e.orbitAng) * 78; e.y = par.y + Math.sin(e.orbitAng) * 52; e.dist = par.dist; e.a = e.orbitAng;
+        e.x = par.x + Math.cos(e.orbitAng) * (e.orbRx || 78); e.y = par.y + Math.sin(e.orbitAng) * (e.orbRy || 52); e.dist = par.dist; e.a = e.orbitAng;
         continue;
       }
       let sp = e.speed;
@@ -693,12 +696,12 @@ class Sim {
         }
       }
       if (e.type === 'ascended') {
-        if (!e.enraged && e.hp < e.maxHp * 0.4) { e.enraged = true; e.speed = e.baseSpeed * 1.4; this.fx({ e: 'emphase', x: e.x | 0, y: e.y | 0, ph: 3 }); }
+        if (!e.enraged && e.hp < e.maxHp * 0.4) { e.enraged = true; e.speed = e.baseSpeed * 1.4; this.spawnCrystals(e, 'holyseal', 4, 96, 62); this.fx({ e: 'emphase', x: e.x | 0, y: e.y | 0, ph: 3 }); }
         // --- Heavenly Descent: fly up out of reach, slam down further along the road, then rain beams of light ---
         const path = this.pathOf(e);
         if (!e.skyPhase && (e.descentT -= dt) <= 0) {
           e.skyPhase = 1; e.skyT = 0; e.hidden = true;
-          e.landDist = Math.min(path.total - 60, e.dist + 3.5 * T);
+          e.landDist = Math.min(path.total - 60, e.dist + 0.4 * T); // lands about where he took off
           const lp = posOnPath(path, e.landDist);
           this.fx({ e: 'rise', x: e.x | 0, y: e.y | 0, tx: lp.x | 0, ty: lp.y | 0 });
         }
@@ -1039,8 +1042,8 @@ class Sim {
   }
   damage(e, dmg, tw, pierce, raw) {
     if (e.hp <= 0 || e.hidden) return;
-    if (e.type === 'emperor' && this.enemies.some((o) => o.orbit === e.id)) {
-      if (!e.immuneFx || this.time - e.immuneFx > 1.5) { e.immuneFx = this.time; this.fx({ e: 'immune', x: e.x | 0, y: e.y | 0 }); }
+    if ((e.type === 'emperor' || e.type === 'ascended') && this.enemies.some((o) => o.orbit === e.id)) {
+      if (!e.immuneFx || this.time - e.immuneFx > 1.5) { e.immuneFx = this.time; this.fx({ e: 'immune', x: e.x | 0, y: e.y | 0, holy: e.type === 'ascended' ? 1 : 0 }); }
       return;
     }
     if (tw && tw.buff && !raw) dmg *= tw.buff;
@@ -1068,12 +1071,14 @@ class Sim {
     const i = this.enemies.indexOf(e);
     if (i >= 0) this.enemies.splice(i, 1);
     if (e.type === 'emperor') { // he falls... then rises again at the start as a god
-      this.fx({ e: 'empfall', x: e.x | 0, y: e.y | 0 });
-      this.pendingSpawns.push({ t: 6.2, type: 'ascended', wave: this.wave, path: e.path, dist: e.dist });
+      // His body drifts back up the road as it rises, so there's always room for the final fight.
+      const path = this.pathOf(e), riseDist = Math.min(e.dist, path.total * 0.6), rp = posOnPath(path, riseDist);
+      this.fx({ e: 'empfall', x: e.x | 0, y: e.y | 0, tx: rp.x | 0, ty: rp.y | 0 });
+      this.pendingSpawns.push({ t: 6.2, type: 'ascended', wave: this.wave, path: e.path, dist: riseDist });
     }
     this.kills++;
     if (tw) tw.kills = (tw.kills || 0) + 1;
-    const bounty = Math.round(e.bounty * BOUNTY_MULT);
+    const bounty = Math.round(e.bounty * BOUNTY_MULT * (this.diff === 3 && this.wave > 10 ? 0.75 : 1)); // Hardcore pays less per kill after wave 10
     for (const p of this.players) this.gold[p.id] += bounty;
     this.fx({ e: 'die', x: e.x | 0, y: e.y | 0, type: e.type, b: bounty });
     if (e.type === 'jelly') this.jellyBurst(e, 5);
@@ -1464,7 +1469,7 @@ function drawEyes(c, a, s, o = {}) {
     }
   }
 }
-const AURA = { ascended: '#ffe080', emperor: '#9a50ff', boss: '#ff2d6f', jelly: '#ff7ad9', shield: '#5aa8ff', dragon: '#b05cff', necro: '#5dff7a', phantom: '#9ff0ff', titan: '#ff8a2e' };
+const AURA = { holyseal: '#ffe08a', ascended: '#ffe080', emperor: '#9a50ff', boss: '#ff2d6f', jelly: '#ff7ad9', shield: '#5aa8ff', dragon: '#b05cff', necro: '#5dff7a', phantom: '#9ff0ff', titan: '#ff8a2e' };
 
 function drawEnemy(c, e, t) {
   const E = ENEMIES[e.type], s = E.size;
@@ -2245,8 +2250,41 @@ function drawEnemy(c, e, t) {
         else { c.beginPath(); c.moveTo(-4, -4); c.lineTo(4, 4); c.moveTo(4, -4); c.lineTo(-4, 4); c.stroke(); }
         c.shadowBlur = 0; c.restore();
       }
+      // golden barrier while the Holy Seals live
+      if (typeof enemyById !== 'undefined' && [...enemyById.values()].some((o) => o.orbit === e.id)) {
+        const R = s * 1.5 + Math.sin(t * 4) * 2;
+        const bg2 = c.createRadialGradient(0, -s * 0.2, R * 0.55, 0, -s * 0.2, R);
+        bg2.addColorStop(0, `rgba(${glowRGB},0.04)`); bg2.addColorStop(1, `rgba(${glowRGB},0.4)`);
+        c.fillStyle = bg2; c.beginPath(); c.arc(0, -s * 0.2, R, 0, TAU); c.fill();
+        c.strokeStyle = `rgba(${glowRGB},0.95)`; c.lineWidth = 2.5;
+        for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(0, -s * 0.2, R, t * 2 + k * 2.09, t * 2 + k * 2.09 + 1); c.stroke(); }
+      }
       // sparkles
       for (let k = 0; k < 8; k++) { const sp = (t * 0.7 + k / 8) % 1, ang = k * 1.9 + e.id; c.fillStyle = `rgba(255,255,255,${1 - sp})`; c.beginPath(); c.arc(Math.cos(ang) * s * 1.3, Math.sin(ang) * s * 0.8 - sp * 24, 2, 0, TAU); c.fill(); }
+      break;
+    }
+    case 'holyseal': {
+      const par = (typeof enemyById !== 'undefined') ? enemyById.get(e.orbit) : null;
+      if (par) { // golden tether to the Ascended Emperor
+        c.save(); c.globalCompositeOperation = 'lighter';
+        c.strokeStyle = `rgba(255,225,140,${0.55 + 0.35 * Math.sin(t * 9 + e.id)})`; c.lineWidth = 3;
+        c.beginPath(); c.moveTo(0, -10); c.lineTo(par.x - e.x, par.y - e.y - 30); c.stroke();
+        c.restore();
+      }
+      c.translate(0, -12 + Math.sin(t * 2.5 + e.id) * 4);
+      const hg2 = c.createRadialGradient(0, 0, 2, 0, 0, s * 2.2); hg2.addColorStop(0, 'rgba(255,245,200,0.75)'); hg2.addColorStop(1, 'rgba(255,215,110,0)');
+      c.fillStyle = hg2; c.beginPath(); c.arc(0, 0, s * 2.2, 0, TAU); c.fill();
+      // spinning rune ring
+      c.save(); c.rotate(t * 1.6 + e.id);
+      c.strokeStyle = '#c9932a'; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, s * 1.25, 0, TAU); c.stroke();
+      c.fillStyle = '#fff3c0'; for (let k = 0; k < 8; k++) { c.save(); c.rotate((k / 8) * TAU); c.translate(s * 1.25, 0); c.fillRect(-1.2, -3, 2.4, 6); c.restore(); }
+      c.restore();
+      // sun sigil
+      c.save(); c.rotate(-t * 0.9);
+      c.fillStyle = flash ? '#fff' : metal(c, -s, -s, s, s, '#ffcf4a'); c.strokeStyle = '#9a6a10'; c.lineWidth = 1.5;
+      c.beginPath(); for (let k = 0; k < 16; k++) { const ang = (k / 16) * TAU, r2 = k % 2 ? s * 0.62 : s * 0.95; c.lineTo(Math.cos(ang) * r2, Math.sin(ang) * r2); } c.closePath(); c.fill(); c.stroke();
+      c.restore();
+      c.shadowColor = '#ffffff'; c.shadowBlur = 12; c.fillStyle = '#ffffff'; c.beginPath(); c.arc(0, 0, s * 0.38, 0, TAU); c.fill(); c.shadowBlur = 0;
       break;
     }
     case 'voidcrystal': {
@@ -2366,9 +2404,9 @@ function addFx(e, view) {
     case 'stomp': effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.8, col: '200,170,120', fill: true }); effects.push({ k: 'text', x: e.x, y: e.y - 50, text: 'STOMP!', t: 0, T: 1, col: '#ffd8a0' }); Sound.play('boom'); break;
     case 'armorbreak': effects.push({ k: 'ring', x: e.x, y: e.y, r: 60, t: 0, T: 0.7, col: '255,160,60' }); effects.push({ k: 'text', x: e.x, y: e.y - 54, text: e.ph === 2 ? 'ARMOR SHATTERED! IT\'S ANGRY!' : 'ARMOR CRACKED!', t: 0, T: 1.6, col: '#ffb060' }); Sound.play('boom'); break;
     case 'emperor': banner('THE VOID EMPEROR', 'Destroy his Void Crystals to break the barrier!'); Sound.play('boss'); setTimeout(() => Sound.play('boss'), 500); effects.push({ k: 'eclipse', t: 0, T: 1.2 }); break;
-    case 'crystals': effects.push({ k: 'ring', x: e.x, y: e.y, r: 90, t: 0, T: 0.8, col: '190,140,255', fill: true }); break;
-    case 'immune': effects.push({ k: 'text', x: e.x, y: e.y - 70, text: 'IMMUNE: break the crystals!', t: 0, T: 1.2, col: '#d8b8ff' }); break;
-    case 'emphase': banner(e.ph === 1 ? 'The barrier shatters!' : e.ph === 3 ? 'DIVINE WRATH!' : 'THE EMPEROR IS FURIOUS!', e.ph === 1 ? 'He opens portals and casts eclipses. Hit him now!' : e.ph === 3 ? 'The Ascended Emperor burns brighter. Finish him!' : 'The crystals are back. Break them again!'); effects.push({ k: 'ring', x: e.x, y: e.y, r: 140, t: 0, T: 0.9, col: e.ph === 1 ? '220,180,255' : '255,80,100', fill: true }); Sound.play('boom'); break;
+    case 'crystals': effects.push({ k: 'ring', x: e.x, y: e.y, r: 90, t: 0, T: 0.8, col: e.holy ? '255,230,150' : '190,140,255', fill: true }); break;
+    case 'immune': effects.push({ k: 'text', x: e.x, y: e.y - 70, text: e.holy ? 'IMMUNE: break the Holy Seals!' : 'IMMUNE: break the crystals!', t: 0, T: 1.2, col: e.holy ? '#fff0b0' : '#d8b8ff' }); break;
+    case 'emphase': banner(e.ph === 1 ? 'The barrier shatters!' : e.ph === 3 ? 'DIVINE WRATH!' : 'THE EMPEROR IS FURIOUS!', e.ph === 1 ? 'He opens portals and casts eclipses. Hit him now!' : e.ph === 3 ? 'The Holy Seals return. Break them and finish him!' : 'The crystals are back. Break them again!'); effects.push({ k: 'ring', x: e.x, y: e.y, r: 140, t: 0, T: 0.9, col: e.ph === 1 ? '220,180,255' : '255,80,100', fill: true }); Sound.play('boom'); break;
     case 'mhit':
       effects.push({ k: 'ring', x: e.x, y: e.y, r: 28, t: 0, T: 0.45, col: e.fire ? '255,140,40' : '255,190,90', fill: true });
       effects.push({ k: 'text', x: e.x, y: e.y - 24, text: 'STUNNED!', t: 0, T: 1, col: e.fire ? '#ffb070' : '#ffd8a0' });
@@ -2385,7 +2423,7 @@ function addFx(e, view) {
       break;
     }
     case 'empfall':
-      effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 6.2 });
+      effects.push({ k: 'fall', x: e.x, y: e.y, tx: e.tx != null ? e.tx : e.x, ty: e.ty != null ? e.ty : e.y, t: 0, T: 6.2 });
       banner('The Void Emperor has fallen', '');
       shakeT = 1.1;
       Sound.play('boom'); setTimeout(() => Sound.play('boom'), 250); setTimeout(() => Sound.play('rumble'), 600);
@@ -2395,7 +2433,7 @@ function addFx(e, view) {
       effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 2.2 });
       effects.push({ k: 'ring', x: e.x, y: e.y, r: 160, t: 0, T: 1.2, col: '255,230,150', fill: true });
       effects.push({ k: 'flashw', t: 0, T: 0.9 });
-      banner('HE HAS ASCENDED', 'The Emperor returns as a god. Beat him one last time!');
+      banner('HE HAS ASCENDED', 'Break the four Holy Seals to reach him!');
       Sound.play('clear'); setTimeout(() => Sound.play('boss'), 300);
       break;
     case 'rise':
@@ -2459,7 +2497,9 @@ function drawEffects(c, dt) {
       const light = tt < 2.4 ? 0 : Math.min(1, (tt - 2.4) / 2.8);
       const dissolve = tt < 5.2 ? 0 : Math.min(1, (tt - 5.2) / 1.0);
       const jit = tt < 1.0 ? (1 - tt) * 4 : 0;
-      const bx = f.x + (Math.random() - 0.5) * jit, by = f.y - 8 + 22 * topple * (1 - rise) - rise * 95 + (Math.random() - 0.5) * jit;
+      // while rising, the body glides back along the road to where he'll ascend
+      const gx = f.x + (f.tx - f.x) * rise, gy = f.y + (f.ty - f.y) * rise;
+      const bx = gx + (Math.random() - 0.5) * jit, by = gy - 8 + 22 * topple * (1 - rise) - rise * 95 + (Math.random() - 0.5) * jit;
       // dark void burst on death
       if (tt < 1.2) {
         const r1 = 30 + tt * 160;
@@ -2834,15 +2874,6 @@ function render(dt) {
     for (let y = 1; y < ROWS; y++) { ctx.moveTo(0, y * T); ctx.lineTo(WW, y * T); }
     ctx.stroke();
   }
-  {
-    const flying = v.enemies.some((e) => ENEMIES[e.type].flying);
-    const M = layer.M;
-    ctx.save();
-    ctx.setLineDash([4, 10]); ctx.lineCap = 'round';
-    ctx.strokeStyle = `rgba(233,228,255,${flying ? 0.55 : ui.placing ? 0.3 : 0.14})`; ctx.lineWidth = 2.5;
-    for (const fp of M.flyPaths) { ctx.beginPath(); ctx.moveTo(fp.pts[0][0], fp.pts[0][1]); ctx.lineTo(fp.pts[1][0], fp.pts[1][1]); ctx.stroke(); }
-    ctx.restore();
-  }
   const sel = selectedTower();
   // Towers
   for (const tw of v.towers) {
@@ -2998,8 +3029,8 @@ function render(dt) {
       ctx.fillStyle = 'rgba(10,12,18,0.75)'; ctx.beginPath(); ctx.roundRect(x - 10, y - 4, w + 20, 40, 10); ctx.fill();
       ctx.font = '15px "Lilita One", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
       const ph = boss.type === 'titan' ? (boss.hp / boss.maxHp > 0.66 ? ' · Armor 2/2' : boss.hp / boss.maxHp > 0.33 ? ' · Armor 1/2' : ' · ARMOR BROKEN') : '';
-      const imm = boss.type === 'emperor' && v.enemies.some((o) => o.orbit === boss.id);
-      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : '') + (boss.hidden || boss.hid ? (boss.type === 'ascended' ? ' (in the sky!)' : ' (invisible)') : '') + (imm ? ' (IMMUNE: break the crystals!)' : '') + ph, WW / 2, y + 13);
+      const imm = (boss.type === 'emperor' || boss.type === 'ascended') && v.enemies.some((o) => o.orbit === boss.id);
+      ctx.fillText(E.name + (boss.enraged || boss.rage ? ' (ENRAGED)' : '') + (boss.hidden || boss.hid ? (boss.type === 'ascended' ? ' (in the sky!)' : ' (invisible)') : '') + (imm ? (boss.type === 'ascended' ? ' (IMMUNE: break the Holy Seals!)' : ' (IMMUNE: break the crystals!)') : '') + ph, WW / 2, y + 13);
       ctx.fillStyle = '#3a1e24'; ctx.fillRect(x, y + 19, w, 10);
       ctx.fillStyle = E.color; ctx.fillRect(x, y + 19, w * f, 10);
       const sf = boss.shieldMax ? boss.shield / boss.shieldMax : boss.shieldF || 0;
@@ -3366,7 +3397,7 @@ if (TEST_MODE) {
   document.querySelector('.logo').innerHTML = 'Bastion <span style="font-size:0.35em;color:#ff8a8a;vertical-align:middle">TEST MODE</span>';
   document.querySelectorAll('[data-go=host],[data-go=join]').forEach((b) => (b.style.display = 'none'));
   const sel = $('t-enemy');
-  sel.innerHTML = ENEMY_TYPES.filter((t) => t !== 'voidcrystal').map((t) => `<option value="${t}">${ENEMIES[t].name}${ENEMIES[t].boss ? ' (boss)' : ''}</option>`).join('');
+  sel.innerHTML = ENEMY_TYPES.filter((t) => !ENEMIES[t].crystal).map((t) => `<option value="${t}">${ENEMIES[t].name}${ENEMIES[t].boss ? ' (boss)' : ''}</option>`).join('');
   $('t-jump').onclick = () => {
     const s = game && game.sim; if (!s) return;
     const n = clamp(parseInt($('t-wave').value, 10) || 1, 1, 200);

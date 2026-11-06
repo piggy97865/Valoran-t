@@ -2064,57 +2064,147 @@ function drawEnemy(c, e, t) {
     }
     case 'ascended': { // The Ascended Emperor: a god of light
       const enr = e.enraged || e.rage;
+      const G1 = enr ? '#ffb070' : '#ffe9a0', G2 = enr ? '#ff7a3a' : '#ffcf4a', G3 = enr ? '#c0401a' : '#c9932a';
+      const glowRGB = enr ? '255,150,90' : '255,235,170';
       const fl = Math.sin(t * 1.5 + e.id) * 4;
-      // rotating light rays
-      c.save(); c.translate(0, -10 + fl); c.globalCompositeOperation = 'lighter';
-      for (let k = 0; k < 12; k++) {
-        c.save(); c.rotate(t * 0.35 + (k / 12) * TAU);
-        const rg = c.createLinearGradient(0, 0, s * 3, 0); rg.addColorStop(0, enr ? 'rgba(255,170,120,0.35)' : 'rgba(255,240,180,0.35)'); rg.addColorStop(1, 'rgba(255,240,180,0)');
-        c.fillStyle = rg; c.beginPath(); c.moveTo(0, 0); c.lineTo(s * 3, -10); c.lineTo(s * 3, 10); c.closePath(); c.fill();
+      // --- magic circles under his feet (counter-rotating, with star patterns) ---
+      c.save(); c.translate(0, s * 0.6); c.scale(1, 0.38);
+      for (const [R, spd, w] of [[s * 2.0, 0.45, 2.5], [s * 1.4, -0.8, 2]]) {
+        c.save(); c.rotate(t * spd);
+        c.strokeStyle = `rgba(${glowRGB},0.85)`; c.lineWidth = w; c.shadowColor = G2; c.shadowBlur = 10;
+        c.beginPath(); c.arc(0, 0, R, 0, TAU); c.stroke();
+        c.beginPath(); c.arc(0, 0, R * 0.86, 0, TAU); c.stroke();
+        c.shadowBlur = 0;
+        for (const off of [0, Math.PI / 3]) { c.beginPath(); for (let k = 0; k < 3; k++) { const ang = off + (k / 3) * TAU - Math.PI / 2; c.lineTo(Math.cos(ang) * R * 0.86, Math.sin(ang) * R * 0.86); } c.closePath(); c.stroke(); }
+        c.fillStyle = `rgba(${glowRGB},0.95)`;
+        for (let k = 0; k < 12; k++) { const ang = (k / 12) * TAU; c.save(); c.translate(Math.cos(ang) * R * 0.93, Math.sin(ang) * R * 0.93); c.rotate(ang); c.fillRect(-1.5, -4, 3, 8); c.restore(); }
         c.restore();
       }
       c.restore();
-      c.translate(0, -10 + fl);
-      // six wings of light
-      const flap = Math.sin(t * 2.2 + e.id) * 0.18;
+      c.translate(0, -16 + fl);
+      // --- giant sun-disc halo with spinning rays ---
+      c.save(); c.translate(0, -s * 0.55); c.globalCompositeOperation = 'lighter';
+      const sd = c.createRadialGradient(0, 0, 2, 0, 0, s * 1.9);
+      sd.addColorStop(0, 'rgba(255,255,255,0.95)'); sd.addColorStop(0.25, `rgba(${glowRGB},0.75)`); sd.addColorStop(0.6, `rgba(${glowRGB},0.22)`); sd.addColorStop(1, `rgba(${glowRGB},0)`);
+      c.fillStyle = sd; c.beginPath(); c.arc(0, 0, s * 1.9, 0, TAU); c.fill();
+      c.rotate(t * 0.3);
+      for (let k = 0; k < 24; k++) {
+        c.save(); c.rotate((k / 24) * TAU);
+        const len = s * (k % 2 ? 1.6 : 2.6) * (0.9 + 0.1 * Math.sin(t * 4 + k));
+        const rg = c.createLinearGradient(s * 0.5, 0, len, 0); rg.addColorStop(0, `rgba(${glowRGB},0.7)`); rg.addColorStop(1, `rgba(${glowRGB},0)`);
+        c.fillStyle = rg; c.beginPath(); c.moveTo(s * 0.5, -3); c.lineTo(len, 0); c.lineTo(s * 0.5, 3); c.closePath(); c.fill();
+        c.restore();
+      }
+      c.globalCompositeOperation = 'source-over';
+      c.rotate(-t * 0.75);
+      c.strokeStyle = `rgba(${glowRGB},0.95)`; c.lineWidth = 2.5; c.beginPath(); c.arc(0, 0, s * 1.15, 0, TAU); c.stroke();
+      c.lineWidth = 1.2; c.beginPath(); c.arc(0, 0, s * 1.05, 0, TAU); c.stroke();
+      c.fillStyle = G1;
+      for (let k = 0; k < 16; k++) { const ang = (k / 16) * TAU; c.save(); c.rotate(ang); c.translate(s * 1.1, 0); if (k % 4 === 0) { c.beginPath(); c.moveTo(-4, 0); c.lineTo(0, -5); c.lineTo(4, 0); c.lineTo(0, 5); c.closePath(); c.fill(); } else c.fillRect(-1, -2.5, 2, 5); c.restore(); }
+      c.restore();
+      // --- flowing golden sashes ---
+      for (const k of [-1, 1]) {
+        const sg = c.createLinearGradient(0, -s * 0.4, k * s * 1.2, s * 1.4); sg.addColorStop(0, G1); sg.addColorStop(1, 'rgba(255,207,74,0)');
+        c.strokeStyle = sg; c.lineWidth = 6; c.lineCap = 'round';
+        c.beginPath(); c.moveTo(k * s * 0.35, -s * 0.4);
+        c.bezierCurveTo(k * s * 0.9, s * 0.1 + Math.sin(t * 3 + k) * 8, k * s * 0.6, s * 0.8 + Math.sin(t * 2.5 + k) * 10, k * s * (1.1 + 0.15 * Math.sin(t * 2 + k)), s * 1.5);
+        c.stroke();
+      }
+      // --- six feathered wings with a shimmer sweeping across ---
+      const flap = Math.sin(t * 2.2 + e.id) * 0.16;
+      const shimmer = (t * 0.6) % 1;
       for (const k of [-1, 1]) for (let w2 = 0; w2 < 3; w2++) {
-        c.save(); c.rotate(k * (0.55 + w2 * 0.45 + flap) - Math.PI / 2 * 0); c.scale(k, 1);
-        const len = s * (2.2 - w2 * 0.3);
-        const wg = c.createLinearGradient(0, 0, len, -len * 0.5); wg.addColorStop(0, 'rgba(255,255,250,1)'); wg.addColorStop(0.6, 'rgba(255,240,190,0.9)'); wg.addColorStop(1, enr ? 'rgba(255,150,90,0.7)' : 'rgba(255,205,90,0.7)');
-        c.fillStyle = wg; c.strokeStyle = 'rgba(190,130,20,0.9)'; c.lineWidth = 1.8;
-        c.beginPath(); c.moveTo(s * 0.3, -s * 0.2);
-        for (let f2 = 0; f2 <= 5; f2++) { const ang = -0.9 + f2 * 0.28; c.quadraticCurveTo(len * 0.6 * Math.cos(ang - 0.15), -s * 0.2 + len * 0.6 * Math.sin(ang - 0.15), s * 0.3 + len * Math.cos(ang), -s * 0.2 + len * Math.sin(ang)); }
-        c.closePath(); c.fill(); c.stroke();
+        c.save(); c.translate(0, -s * 0.35); c.scale(k, 1); c.rotate(-0.35 + w2 * 0.5 + flap * (1 - w2 * 0.25));
+        const len = s * (2.5 - w2 * 0.35);
+        // glowing wing base that the feathers grow from
+        const wb = c.createLinearGradient(s * 0.2, 0, len, -len * 0.3);
+        wb.addColorStop(0, 'rgba(255,255,255,0.95)'); wb.addColorStop(1, `rgba(${glowRGB},0.35)`);
+        c.fillStyle = wb; c.strokeStyle = G3; c.lineWidth = 1.4;
+        c.beginPath(); c.moveTo(s * 0.15, 4); c.quadraticCurveTo(len * 0.45, -len * 0.42, len * 0.98, -len * 0.3);
+        c.quadraticCurveTo(len * 0.55, -len * 0.12, s * 0.15, 11); c.closePath(); c.fill(); c.stroke();
+        for (let f = 6; f >= 0; f--) {
+          const q = f / 6, fx = s * 0.25 + q * len * 0.85, fy = -len * 0.18 * Math.sin(q * Math.PI) - q * len * 0.1;
+          const fl2 = len * (0.55 - q * 0.25), fang = -0.35 - q * 0.5;
+          const shine = Math.max(0, 1 - Math.abs(q - shimmer) * 4);
+          const fg = c.createLinearGradient(fx, fy, fx + Math.cos(fang) * fl2, fy + Math.sin(fang) * fl2);
+          fg.addColorStop(0, '#ffffff'); fg.addColorStop(0.55, shine > 0 ? '#fffbe8' : G1); fg.addColorStop(1, G2);
+          c.fillStyle = fg; c.strokeStyle = G3; c.lineWidth = 1.2;
+          c.beginPath(); c.ellipse(fx + Math.cos(fang) * fl2 * 0.5, fy + Math.sin(fang) * fl2 * 0.5, fl2 * 0.58, 7.5 - w2 * 1.2, fang, 0, TAU); c.fill(); c.stroke();
+        }
         c.restore();
       }
-      // flowing golden robe
-      const sway = Math.sin(t * 2 + e.id) * 4;
-      const rg2 = c.createLinearGradient(0, -s * 0.6, 0, s * 1.3); rg2.addColorStop(0, '#fffaf0'); rg2.addColorStop(0.6, '#ffe7a0'); rg2.addColorStop(1, '#d9a83a');
-      c.fillStyle = flash ? '#fff' : rg2; c.strokeStyle = '#a8781a'; c.lineWidth = 2;
-      c.beginPath(); c.moveTo(-s * 0.45, -s * 0.55); c.quadraticCurveTo(-s * 0.85 + sway, s * 0.6, -s * 0.62 + sway, s * 1.35);
-      for (let k = 0; k <= 8; k++) c.lineTo(-s * 0.62 + sway + (k / 8) * s * 1.24, s * 1.35 + (k % 2 ? 5 : 0));
-      c.quadraticCurveTo(s * 0.85 + sway, s * 0.6, s * 0.45, -s * 0.55); c.closePath(); c.fill(); c.stroke();
-      c.strokeStyle = '#ffcf4a'; c.lineWidth = 3; c.beginPath(); c.moveTo(-s * 0.35, -s * 0.3); c.lineTo(0, s * 0.55); c.lineTo(s * 0.35, -s * 0.3); c.stroke();
-      c.fillStyle = '#ffffff'; c.shadowColor = '#ffe9a0'; c.shadowBlur = 18;
-      c.beginPath(); c.moveTo(0, s * 0.02); c.lineTo(6, s * 0.2); c.lineTo(0, s * 0.38); c.lineTo(-6, s * 0.2); c.closePath(); c.fill(); c.shadowBlur = 0;
-      // radiant head
-      const hg = c.createRadialGradient(-4, -s * 0.85, 2, 0, -s * 0.8, s * 0.45); hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, '#ffe6a0');
-      c.fillStyle = flash ? '#fff' : hg; c.strokeStyle = '#c9932a'; c.lineWidth = 2;
-      c.beginPath(); c.arc(0, -s * 0.8, s * 0.4, 0, TAU); c.fill(); c.stroke();
-      c.shadowColor = enr ? '#ff8a40' : '#ffffff'; c.shadowBlur = 16; c.fillStyle = enr ? '#ffb070' : '#ffffff';
-      for (const k of [-1, 1]) { c.beginPath(); c.ellipse(k * s * 0.15, -s * 0.8, 4.5, 2.2, 0, 0, TAU); c.fill(); }
-      c.beginPath(); c.ellipse(0, -s * 0.98, 2.2, 3.6, 0, 0, TAU); c.fill(); c.shadowBlur = 0;
-      // blazing halo
-      c.save(); c.translate(0, -s * 0.95);
-      c.shadowColor = '#ffe080'; c.shadowBlur = 20;
-      c.strokeStyle = '#ffe9a0'; c.lineWidth = 4; c.beginPath(); c.ellipse(0, -s * 0.15, s * 0.7, s * 0.24, 0, 0, TAU); c.stroke();
-      c.shadowBlur = 0;
-      c.rotate(t * 0.6);
-      c.fillStyle = 'rgba(255,240,180,0.9)';
-      for (let k = 0; k < 12; k++) { const ang = (k / 12) * TAU; c.beginPath(); c.arc(Math.cos(ang) * s * 0.95, Math.sin(ang) * s * 0.33 - s * 0.15, k % 3 ? 1.6 : 3, 0, TAU); c.fill(); }
+      // --- spear of light ---
+      c.save(); c.translate(s * 0.62, 0); c.rotate(0.08 + Math.sin(t * 1.5) * 0.05);
+      c.globalCompositeOperation = 'lighter';
+      const spg = c.createLinearGradient(-6, 0, 6, 0); spg.addColorStop(0, `rgba(${glowRGB},0)`); spg.addColorStop(0.5, `rgba(${glowRGB},0.8)`); spg.addColorStop(1, `rgba(${glowRGB},0)`);
+      c.fillStyle = spg; c.fillRect(-7, -s * 2.1, 14, s * 3.3);
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = '#fffdf0'; c.fillRect(-1.6, -s * 1.9, 3.2, s * 3.0);
+      c.shadowColor = G2; c.shadowBlur = 18; c.fillStyle = '#ffffff';
+      c.beginPath(); c.moveTo(0, -s * 2.45); c.lineTo(7, -s * 1.95); c.lineTo(0, -s * 1.75); c.lineTo(-7, -s * 1.95); c.closePath(); c.fill();
+      c.shadowBlur = 0; c.strokeStyle = G3; c.lineWidth = 1.2; c.stroke();
       c.restore();
+      // --- slim radiant robe ---
+      const sway = Math.sin(t * 2 + e.id) * 4;
+      const rg2 = c.createLinearGradient(0, -s * 0.6, 0, s * 1.3); rg2.addColorStop(0, '#ffffff'); rg2.addColorStop(0.55, G1); rg2.addColorStop(1, G3);
+      c.fillStyle = flash ? '#fff' : rg2; c.strokeStyle = G3; c.lineWidth = 2;
+      const robe = () => { c.beginPath(); c.moveTo(-s * 0.45, -s * 0.55); c.quadraticCurveTo(-s * 0.85 + sway, s * 0.6, -s * 0.62 + sway, s * 1.35); for (let k = 0; k <= 8; k++) c.lineTo(-s * 0.62 + sway + (k / 8) * s * 1.24, s * 1.35 + (k % 2 ? 5 : 0)); c.quadraticCurveTo(s * 0.85 + sway, s * 0.6, s * 0.45, -s * 0.55); c.closePath(); };
+      robe(); c.fill(); c.stroke();
+      c.save(); robe(); c.clip();
+      c.strokeStyle = 'rgba(201,147,42,0.55)'; c.lineWidth = 1.5;
+      for (const x of [-0.25, 0, 0.25]) { c.beginPath(); c.moveTo(x * s, -s * 0.2); c.lineTo(x * s * 1.6 + sway, s * 1.4); c.stroke(); }
+      c.fillStyle = `rgba(${glowRGB},0.9)`; c.fillRect(-s, s * 1.15, s * 2, 6);
+      c.restore();
+      // --- golden armor: sun emblem + gem pauldrons ---
+      for (const k of [-1, 1]) {
+        c.fillStyle = metal(c, k * s * 0.5 - 10, -s * 0.7, k * s * 0.5 + 10, -s * 0.3, G2); c.strokeStyle = G3; c.lineWidth = 1.5;
+        c.beginPath(); c.ellipse(k * s * 0.47, -s * 0.48, 11, 8, k * 0.3, Math.PI, 0); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = enr ? '#ff3b4f' : '#4ad6ff'; c.beginPath(); c.arc(k * s * 0.47, -s * 0.53, 2.6, 0, TAU); c.fill();
+      }
+      c.save(); c.translate(0, -s * 0.05);
+      c.shadowColor = G2; c.shadowBlur = 16;
+      c.fillStyle = '#ffffff'; c.beginPath(); c.arc(0, 0, 6.5, 0, TAU); c.fill();
+      c.shadowBlur = 0;
+      c.strokeStyle = G2; c.lineWidth = 1.8;
+      for (let k = 0; k < 8; k++) { const ang = (k / 8) * TAU + t; c.beginPath(); c.moveTo(Math.cos(ang) * 8, Math.sin(ang) * 8); c.lineTo(Math.cos(ang) * 13, Math.sin(ang) * 13); c.stroke(); }
+      c.restore();
+      // --- radiant head, streaming eyes, crown of light ---
+      const hg = c.createRadialGradient(-4, -s * 0.9, 2, 0, -s * 0.85, s * 0.42); hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, G1);
+      c.fillStyle = flash ? '#fff' : hg; c.strokeStyle = G3; c.lineWidth = 2;
+      c.beginPath(); c.ellipse(0, -s * 0.88, s * 0.32, s * 0.38, 0, 0, TAU); c.fill(); c.stroke();
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (const k of [-1, 1]) {
+        const eg = c.createLinearGradient(k * s * 0.13, 0, k * s * 0.13 + k * 26, 0); eg.addColorStop(0, `rgba(${glowRGB},0.9)`); eg.addColorStop(1, `rgba(${glowRGB},0)`);
+        c.fillStyle = eg; c.beginPath(); c.moveTo(k * s * 0.13, -s * 0.9 - 1.5); c.lineTo(k * (s * 0.13 + 26), -s * 0.9 - 4 + Math.sin(t * 6 + k) * 2); c.lineTo(k * s * 0.13, -s * 0.9 + 1.5); c.closePath(); c.fill();
+      }
+      c.restore();
+      c.shadowColor = enr ? '#ff6a2a' : '#ffffff'; c.shadowBlur = 14; c.fillStyle = enr ? '#ffcf9a' : '#ffffff';
+      for (const k of [-1, 1]) { c.beginPath(); c.ellipse(k * s * 0.13, -s * 0.9, 4.2, 2, 0, 0, TAU); c.fill(); }
+      c.beginPath(); c.ellipse(0, -s * 1.07, 2, 3.4, 0, 0, TAU); c.fill(); c.shadowBlur = 0;
+      // crown of light
+      c.save(); c.translate(0, -s * 1.18);
+      for (let k = -3; k <= 3; k++) {
+        const ang = -Math.PI / 2 + k * 0.28, len = s * (k === 0 ? 0.95 : 0.75 - Math.abs(k) * 0.08) * (0.92 + 0.08 * Math.sin(t * 5 + k));
+        const cg = c.createLinearGradient(0, 0, Math.cos(ang) * len, Math.sin(ang) * len); cg.addColorStop(0, G2); cg.addColorStop(1, '#ffffff');
+        c.fillStyle = cg; c.strokeStyle = G3; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(Math.cos(ang - 0.12) * 6, Math.sin(ang - 0.12) * 6); c.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); c.lineTo(Math.cos(ang + 0.12) * 6, Math.sin(ang + 0.12) * 6); c.closePath(); c.fill(); c.stroke();
+      }
+      c.shadowColor = G2; c.shadowBlur = 14; c.strokeStyle = G1; c.lineWidth = 3;
+      c.beginPath(); c.ellipse(0, 2, s * 0.42, s * 0.12, 0, 0, TAU); c.stroke(); c.shadowBlur = 0;
+      c.restore();
+      // --- orbiting golden runes ---
+      for (let k = 0; k < 8; k++) {
+        const ang = t * 0.9 + (k / 8) * TAU, rx = Math.cos(ang) * s * 1.55, ry = Math.sin(ang) * s * 0.55 - s * 0.3;
+        if (Math.sin(ang) < 0) continue; // only the front half, so they wrap around him
+        c.save(); c.translate(rx, ry); c.rotate(t * 2 + k);
+        c.strokeStyle = G1; c.fillStyle = G1; c.lineWidth = 1.6; c.shadowColor = G2; c.shadowBlur = 8;
+        if (k % 3 === 0) { c.beginPath(); c.moveTo(0, -5); c.lineTo(4.5, 3); c.lineTo(-4.5, 3); c.closePath(); c.stroke(); }
+        else if (k % 3 === 1) { c.beginPath(); c.arc(0, 0, 4, 0, TAU); c.stroke(); c.fillRect(-1, -6, 2, 12); }
+        else { c.beginPath(); c.moveTo(-4, -4); c.lineTo(4, 4); c.moveTo(4, -4); c.lineTo(-4, 4); c.stroke(); }
+        c.shadowBlur = 0; c.restore();
+      }
       // sparkles
-      for (let k = 0; k < 6; k++) { const sp = (t * 0.7 + k / 6) % 1, ang = k * 1.9 + e.id; c.fillStyle = `rgba(255,255,255,${1 - sp})`; c.beginPath(); c.arc(Math.cos(ang) * s * 1.2, Math.sin(ang) * s * 0.8 - sp * 20, 2, 0, TAU); c.fill(); }
+      for (let k = 0; k < 8; k++) { const sp = (t * 0.7 + k / 8) % 1, ang = k * 1.9 + e.id; c.fillStyle = `rgba(255,255,255,${1 - sp})`; c.beginPath(); c.arc(Math.cos(ang) * s * 1.3, Math.sin(ang) * s * 0.8 - sp * 24, 2, 0, TAU); c.fill(); }
       break;
     }
     case 'voidcrystal': {

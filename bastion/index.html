@@ -1296,15 +1296,18 @@ const Sound = {
    Music: a small synth band that plays along and changes with the action
    ========================================================================= */
 const MIDI = (n) => 440 * Math.pow(2, (n - 69) / 12);
+// Dark minor / diminished harmony everywhere: scary, not happy.
+// drone = low rumbling note under every bar; dread = creepy half-step bass ("dun-dun");
+// ost = fast tense string stabs; choir = spooky minor "aaah".
 const SONGS = {
-  calm: { bpm: 104, root: 45, chords: [[0, 3, 7], [-4, 0, 3], [-9, -5, -2], [-2, 2, 5]],
-    kick: [0, 8, 10], snare: [4, 12], hat: [2, 6, 10, 14], bass: [0, 3, 6, 8, 11, 14], arp: true, pad: 0.6, lead: false },
-  boss: { bpm: 140, root: 38, chords: [[0, 3, 7], [-4, 0, 3], [5, 8, 12], [7, 11, 14]],
-    kick: [0, 3, 6, 8, 11, 14], snare: [4, 12], hat: 'all', bass: [0, 2, 4, 6, 8, 10, 12, 14], stab: [0, 10], pad: 0.5, arp: true },
-  void: { bpm: 150, root: 40, chords: [[0, 3, 7], [-4, 0, 3], [-7, -4, 0], [-1, 3, 6]],
-    kick: [0, 3, 6, 8, 10, 11, 14], snare: [4, 12], hat: 'all', tom: [13, 15], bass: [0, 1, 3, 4, 6, 8, 9, 11, 12, 14], stab: [0, 6, 12], choir: true, pad: 0.4, bell: true },
-  ascended: { bpm: 150, root: 40, chords: [[0, 4, 7], [-3, 0, 4], [5, 9, 12], [7, 11, 14]],
-    kick: [0, 4, 8, 10, 12], snare: [4, 12], hat: 'all', tom: [14, 15], bass: [0, 2, 3, 6, 8, 10, 11, 14], choir: true, pad: 0.6, bell: true, stab: [0, 8] },
+  calm: { bpm: 96, root: 43, chords: [[0, 3, 7], [1, 5, 8], [-4, 0, 3], [-1, 2, 5]],
+    kick: [0, 3, 8, 11], snare: [12], hat: [2, 6, 10, 14], bass: [0, 3, 8, 11], arp: true, pad: 0.7, drone: true, dread: true },
+  boss: { bpm: 144, root: 38, chords: [[0, 3, 7], [1, 5, 8], [0, 3, 7], [6, 9, 13]],
+    kick: [0, 3, 6, 8, 11, 14], snare: [4, 12], hat: 'all', bass: [0, 2, 4, 6, 8, 10, 12, 14], stab: [0, 10], pad: 0.5, ost: true, drone: true, dread: true },
+  void: { bpm: 152, root: 40, chords: [[0, 3, 6], [1, 4, 8], [0, 3, 7], [-1, 2, 6]],
+    kick: [0, 3, 6, 8, 10, 11, 14], snare: [4, 12], hat: 'all', tom: [13, 15], bass: [0, 1, 3, 4, 6, 8, 9, 11, 12, 14], stab: [0, 6, 12], choir: true, pad: 0.4, bell: true, ost: true, drone: true, dread: true },
+  ascended: { bpm: 160, root: 40, chords: [[0, 3, 7], [-4, 0, 3], [1, 5, 8], [-1, 2, 5, 8]],
+    kick: [0, 3, 4, 8, 10, 11, 12], snare: [4, 12], hat: 'all', tom: [14, 15], bass: [0, 2, 3, 6, 8, 10, 11, 14], choir: true, pad: 0.6, bell: true, stab: [0, 8], ost: true, drone: true, dread: true },
 };
 const Music = {
   on: store.get('music', true), vol: store.get('musicVol', 60) / 100,
@@ -1361,11 +1364,22 @@ const Music = {
     if (S.snare.includes(st)) this.drum('snare', t);
     if (S.hat === 'all' ? true : S.hat.includes(st)) this.drum('hat', t, st % 2 ? 0.6 : 1);
     if (S.tom && S.tom.includes(st) && bar % 2 === 1) this.drum('tom', t);
-    if (S.bass.includes(st)) { const n = root + ch[0] + (st % 8 === 6 && S.bpm > 120 ? 12 : 0); this.osc('sawtooth', MIDI(n), t, spb * 0.45, 0.22, 0.005, [1400, 160], 4); }
+    if (S.bass.includes(st)) { const n = root + ch[0] + (S.dread ? (st >= 12 && st % 2 === 0 ? 1 : 0) : (st % 8 === 6 && S.bpm > 120 ? 12 : 0)); this.osc('sawtooth', MIDI(n), t, spb * 0.45, 0.22, 0.005, [1400, 160], 4); }
+    if (S.drone && st === 0) { // low rumbling drone with a slow, uneasy beat in it
+      for (const det of [-14, 14]) this.osc('sawtooth', MIDI(root - 12 + ch[0]), t, spb * 4.1, 0.09, 0.3, [380, 220], 2, det);
+    }
+    if (S.ost) { // fast, tense string stabs (like a horror movie chase)
+      const pat = [0, 0, 1, 0, 2, 0, 1, 0], iv = ch[pat[st % 8] % ch.length];
+      this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 0.22, 0.05, 0.004, [2600, 500], 2, st % 2 ? 6 : -6);
+    }
+    if (S.ost && step === 0) { // a huge "BOOM" every 4 bars
+      this.drum('tom', t, 1.6); this.drum('kick', t, 1.3);
+      for (const iv of [0, 1]) this.osc('sawtooth', MIDI(root + iv), t, spb * 3, 0.08, 0.01, [900, 120], 3);
+    }
     if (st === 0) { // pad chord for the whole bar
       for (const iv of ch) for (const det of [-9, 9]) this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 4, 0.035 * S.pad, 0.5, [1600, 600], 0.5, det);
     }
-    if (S.arp && st % 2 === 0) { const iv = ch[(st / 2) % ch.length] + (st >= 8 ? 12 : 0); this.osc('square', MIDI(root + 36 + iv), t, spb * 0.3, 0.035, 0.003, [3000, 500], 2); }
+    if (S.arp && st % 2 === 0) { const iv = ch[(st / 2) % ch.length] + (st >= 8 ? 12 : 0); this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 0.35, 0.04, 0.003, [1300, 250], 3); }
     if (S.stab && S.stab.includes(st)) for (const iv of ch) for (const det of [-12, 12]) this.osc('sawtooth', MIDI(root + 24 + iv), t, spb * 0.5, 0.05, 0.01, [4500, 700], 1.5, det);
     if (S.choir && st === 0) { // "aah" choir over the bar
       const c = Sound.ctx;
@@ -1377,7 +1391,7 @@ const Music = {
         o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(this.bus); o.start(t); o.stop(t + spb * 4.3);
       }
     }
-    if (S.bell && (st === 0 || st === 6 || st === 12)) { const n = root + 48 + ch[(st / 6) % ch.length]; this.osc('sine', MIDI(n), t, spb * 2.5, 0.06); this.osc('sine', MIDI(n) * 2.76, t, spb * 1.2, 0.02); }
+    if (S.bell && (st === 0 || st === 6 || st === 12)) { const n = root + 36 + ch[(st / 6) % ch.length]; this.osc('sine', MIDI(n), t, spb * 3, 0.07); this.osc('sine', MIDI(n) * 2.76, t, spb * 1.4, 0.025); this.osc('sine', MIDI(n) * 1.41, t, spb * 2, 0.02); }
   },
 };
 

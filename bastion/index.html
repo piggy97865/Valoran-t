@@ -735,12 +735,20 @@ class Sim {
         }
         if (e.skyPhase) { e.laserT = Math.max(e.laserT, 0.5); e.judgeT = Math.max(e.judgeT, 0.5); e.orbT = Math.max(e.orbT, 0.5); e.smiteT = Math.max(e.smiteT, 0.5); e.seraphT = Math.max(e.seraphT, 0.5); }
         // three guardian angels float above him and take turns smiting towers with holy lightning
+        // (each one flies over to a tower, hovers above it for a moment, then strikes it with holy lightning)
         if ((e.smiteT -= dt) <= 0) {
-          e.smiteT = e.enraged ? 1.6 : 2.4;
-          const k = e.smiteK++ % 3, a = angelPos(e, k), r = 6 * T;
+          e.smiteT = e.enraged ? 1.4 : 2.1;
+          const k = e.smiteK++ % 3, r = 8 * T;
           const pool = this.towers.filter((tw) => !(tw.stun > 0) && (tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r);
           const tw = pool[Math.floor(Math.random() * pool.length)];
-          if (tw) { tw.stun = Math.max(tw.stun || 0, 1.5); this.fx({ e: 'smite', x1: a.x | 0, y1: a.y | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
+          if (tw) { (e.smites = e.smites || []).push({ id: tw.id, t: 0.8 }); this.fx({ e: 'angelgo', id: e.id, k, x: tw.x | 0, y: tw.y | 0 }); }
+        }
+        if (e.smites) for (let i = e.smites.length - 1; i >= 0; i--) {
+          const sm = e.smites[i];
+          if ((sm.t -= dt) > 0) continue;
+          e.smites.splice(i, 1);
+          const tw = this.towers.find((o) => o.id === sm.id);
+          if (tw) { tw.stun = Math.max(tw.stun || 0, 1.8); this.fx({ e: 'smite', x1: tw.x | 0, y1: (tw.y - 78) | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
         }
         // he calls Seraph warriors down from the heavens
         if ((e.seraphT -= dt) <= 0) {
@@ -1195,11 +1203,6 @@ class Sim {
   }
 }
 function wrapA(a) { return ((a + Math.PI * 3) % TAU) - Math.PI; }
-// Where each of the Ascended Emperor's three guardian angels hovers (same maths for the game and the drawing).
-function angelPos(e, k) {
-  const ang = (e.x + e.y) * 0.012 + k * 2.094;
-  return { x: e.x + Math.cos(ang) * 84, y: e.y - 128 + Math.sin(ang) * 22, ang };
-}
 function turn(a, b, max) { let d = ((b - a + Math.PI * 3) % TAU) - Math.PI; return a + clamp(d, -max, max); }
 
 /* =========================================================================
@@ -2430,10 +2433,22 @@ function drawEnemy(c, e, t) {
       }
       // three guardian angels hovering above him
       c.restore(); c.save(); c.translate(e.x, e.y);
-      if (skyH <= 0) for (let k = 0; k < 3; k++) {
-        const ap = angelPos(e, k); c.save(); c.translate(ap.x - e.x, ap.y - e.y + Math.sin(t * 2.5 + k * 2) * 4);
-        drawAngel(c, t + k, 1.15, G1, glowRGB);
-        c.restore();
+      if (skyH <= 0) {
+        const st = angelState(e.id), dt2 = Math.min(0.1, Math.max(0, t - (st.last || t))); st.last = t;
+        const gdt = gameDt(dt2);
+        for (let k = 0; k < 3; k++) {
+          const A = st[k];
+          // when not hunting a tower, circle around above him
+          const ang = t * 0.55 + k * 2.094, home = { x: e.x + Math.cos(ang) * 105, y: e.y - 120 + Math.sin(ang) * 30 };
+          if (A.left > 0) A.left -= gdt;
+          const goal = A.left > 0 ? A.goal : home;
+          if (A.x == null) { A.x = home.x; A.y = home.y; }
+          const f = 1 - Math.exp(-gdt * (A.left > 0 ? 6 : 3));
+          A.x += (goal.x - A.x) * f; A.y += (goal.y - A.y) * f;
+          c.save(); c.translate(A.x - e.x, A.y - e.y + Math.sin(t * 2.2 + k * 2) * 5);
+          drawOphan(c, t + k * 1.7, 1, enr, A.left > 0 ? 0 : Math.cos(t * 0.8 + k) * 0.6, A.left > 0 ? 1 : 0.7);
+          c.restore();
+        }
       }
       // sparkles
       for (let k = 0; k < 8; k++) { const sp = (t * 0.7 + k / 8) % 1, ang = k * 1.9 + e.id; c.fillStyle = `rgba(255,255,255,${1 - sp})`; c.beginPath(); c.arc(Math.cos(ang) * s * 1.3, Math.sin(ang) * s * 0.8 - sp * 24, 2, 0, TAU); c.fill(); }
@@ -2509,7 +2524,72 @@ function drawEnemy(c, e, t) {
   }
 }
 
-// A small winged angel (used for the guardian angels and Seraph warriors)
+// Visual-only positions of each Ascended Emperor's three angels (so they can fly off to towers)
+const angelViz = new Map();
+function angelState(id) {
+  if (!angelViz.has(id)) { if (angelViz.size > 8) angelViz.clear(); angelViz.set(id, [{}, {}, {}]); }
+  return angelViz.get(id);
+}
+function drawEye(c, x, y, r, lx, ly, t, seed) {
+  const blink = Math.sin(t * 1.3 + seed * 7.1) > 0.97 ? 0.15 : 1; // blinks now and then
+  c.save(); c.translate(x, y); c.scale(1, blink);
+  c.fillStyle = '#fffdf2'; c.beginPath(); c.ellipse(0, 0, r * 1.35, r, 0, 0, TAU); c.fill();
+  c.strokeStyle = '#b5841f'; c.lineWidth = Math.max(0.8, r * 0.18); c.stroke();
+  const ix = lx * r * 0.45, iy = ly * r * 0.35;
+  c.fillStyle = '#e8a91c'; c.beginPath(); c.arc(ix, iy, r * 0.62, 0, TAU); c.fill();
+  c.fillStyle = '#120a02'; c.beginPath(); c.arc(ix, iy, r * 0.32, 0, TAU); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(ix - r * 0.2, iy - r * 0.2, r * 0.13, 0, TAU); c.fill();
+  c.restore();
+}
+// A "biblically accurate" angel: spinning golden rings covered in eyes, a giant eye, six wings and holy fire
+function drawOphan(c, t, sc, enr, lookX, lookY) {
+  c.save(); c.scale(sc, sc);
+  const gold = enr ? '#ffb070' : '#ffd860', deep = enr ? '#c0401a' : '#b5841f', glow = enr ? '255,150,90' : '255,225,140';
+  // halo of light
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const hg = c.createRadialGradient(0, 0, 4, 0, 0, 62); hg.addColorStop(0, `rgba(${glow},0.6)`); hg.addColorStop(1, `rgba(${glow},0)`);
+  c.fillStyle = hg; c.beginPath(); c.arc(0, 0, 62, 0, TAU); c.fill();
+  // flickering holy fire behind
+  for (let k = 0; k < 10; k++) {
+    const an = (k / 10) * TAU + t * 0.4, fl = 26 + 10 * Math.sin(t * 9 + k * 2.3);
+    c.save(); c.rotate(an); c.fillStyle = k % 2 ? 'rgba(255,170,60,0.45)' : 'rgba(255,240,180,0.5)';
+    c.beginPath(); c.moveTo(14, -5); c.quadraticCurveTo(fl, 0, 14, 5); c.closePath(); c.fill(); c.restore();
+  }
+  c.restore();
+  // six wings, each with eyes on it
+  const flap = Math.sin(t * 5) * 0.18;
+  for (const side of [-1, 1]) for (let w = 0; w < 3; w++) {
+    c.save(); c.scale(side, 1); c.rotate(-0.95 + w * 0.75 + flap * (w === 1 ? 1 : -1));
+    const L = 54 - w * 5;
+    for (let f = 0; f < 5; f++) {
+      const g = c.createLinearGradient(8, 0, L, 0); g.addColorStop(0, '#fffaf0'); g.addColorStop(1, gold);
+      c.fillStyle = g; c.strokeStyle = deep; c.lineWidth = 0.8;
+      c.beginPath(); c.ellipse(10 + f * (L - 14) / 5, (f - 2) * 1.6, (L - f * 4) * 0.42, 3.4, (f - 2) * 0.12, 0, TAU); c.fill(); c.stroke();
+    }
+    drawEye(c, L * 0.45, 0, 3, side * lookX, lookY, t, side * 3 + w); drawEye(c, L * 0.75, -1, 2.4, side * lookX, lookY, t, side * 5 + w);
+    c.restore();
+  }
+  // interlocking rings ("wheels within wheels") spinning in 3D, covered in eyes
+  for (let r = 0; r < 3; r++) {
+    const R = 26 - r * 3, tilt = r * 1.05 + 0.3, spin = t * (0.9 + r * 0.35) * (r % 2 ? -1 : 1);
+    const squash = Math.abs(Math.cos(spin)) * 0.85 + 0.15;
+    c.save(); c.rotate(tilt);
+    c.strokeStyle = deep; c.lineWidth = 6; c.beginPath(); c.ellipse(0, 0, R, R * squash, 0, 0, TAU); c.stroke();
+    c.strokeStyle = gold; c.lineWidth = 3.6; c.shadowColor = gold; c.shadowBlur = 8; c.beginPath(); c.ellipse(0, 0, R, R * squash, 0, 0, TAU); c.stroke(); c.shadowBlur = 0;
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU + spin, ex = Math.cos(a) * R, ey = Math.sin(a) * R * squash;
+      drawEye(c, ex, ey, 2.6, lookX, lookY, t, r * 6 + k);
+    }
+    c.restore();
+  }
+  // the great eye in the middle
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const eg = c.createRadialGradient(0, 0, 2, 0, 0, 20); eg.addColorStop(0, `rgba(${glow},0.9)`); eg.addColorStop(1, `rgba(${glow},0)`);
+  c.fillStyle = eg; c.beginPath(); c.arc(0, 0, 20, 0, TAU); c.fill(); c.restore();
+  drawEye(c, 0, 0, 9, lookX, lookY, t, 99);
+  c.restore();
+}
+// A small winged angel (used for the Seraph warriors)
 function drawAngel(c, t, sc, gold, glowRGB, flash, faceAng) {
   c.save(); c.scale(sc, sc);
   c.save(); c.globalCompositeOperation = 'lighter';
@@ -2629,6 +2709,7 @@ function addFx(e, view) {
       effects.push({ k: 'text', x: e.x, y: e.y - 28, text: 'BLINDED!', t: 0, T: 1.3, col: '#fff0b0' });
       if (!addFx.beamSnd || performance.now() - addFx.beamSnd > 300) { addFx.beamSnd = performance.now(); Sound.play('choir'); Sound.play('rail'); }
       break;
+    case 'angelgo': { const st = angelState(e.id); st[e.k % 3].goal = { x: e.x, y: e.y - 78 }; st[e.k % 3].left = 2.0; break; }
     case 'smite':
       effects.push({ k: 'beam', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.55, col: '255,230,140', w: 7, jag: true, holy: true });
       effects.push({ k: 'flare', x: e.x1, y: e.y1, t: 0, T: 0.4, col: '255,240,190', r: 22 });

@@ -723,15 +723,15 @@ class Sim {
             e.skyPhase = 0; e.hidden = false; e.descentT = e.enraged ? 11 : 15;
             e.dist = Math.max(e.dist, e.landDist); this.placeEnemy(e);
             const r = 3 * T;
-            for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = Math.max(tw.stun || 0, 3);
+            for (const tw of this.towers) if ((tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r) tw.stun = Math.max(tw.stun || 0, 4);
             this.fx({ e: 'slam', x: e.x | 0, y: e.y | 0, r });
-            e.rain = 8; e.rainT = 0.3;
+            e.rain = 10; e.rainT = 0.3;
           }
         }
         if (e.rain > 0 && (e.rainT -= dt) <= 0) { // beams of light rain down on towers
           e.rain--; e.rainT = 0.22;
           const pool = this.towers.filter((tw) => !(tw.stun > 0)), tw = pool[Math.floor(Math.random() * pool.length)];
-          if (tw) { tw.stun = 2.5; this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
+          if (tw) { tw.stun = 3.5; this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
         }
         if (e.skyPhase) { e.laserT = Math.max(e.laserT, 0.5); e.judgeT = Math.max(e.judgeT, 0.5); e.orbT = Math.max(e.orbT, 0.5); e.smiteT = Math.max(e.smiteT, 0.5); e.seraphT = Math.max(e.seraphT, 0.5); }
         // three guardian angels float above him and take turns smiting towers with holy lightning
@@ -765,22 +765,22 @@ class Sim {
           if (sm.kind === 'pillar') { // the strongest tower there and the strongest one next to it
             const near = this.towers.filter((o) => !(o.stun > 0) && (o.x - sm.x) ** 2 + (o.y - sm.y) ** 2 <= (3 * T) ** 2).sort((p1, p2) => p2.level - p1.level);
             const tw0 = this.towers.find((o) => o.id === sm.id), hit = [tw0, ...near.filter((o) => o !== tw0)].filter(Boolean).slice(0, 2);
-            for (const tw of hit) { tw.stun = Math.max(tw.stun || 0, 6); this.fx({ e: 'skybeam', x: tw.x | 0, y: tw.y | 0, sx: sm.x | 0, sy: (sm.y - 48) | 0 }); }
+            for (const tw of hit) { tw.stun = Math.max(tw.stun || 0, 7); this.fx({ e: 'skybeam', x: tw.x | 0, y: tw.y | 0, sx: sm.x | 0, sy: (sm.y - 48) | 0 }); }
           } else if (sm.kind === 'burst') {
             const R = 1.8 * T;
-            for (const tw of this.towers) if ((tw.x - sm.x) ** 2 + (tw.y - sm.y) ** 2 <= R * R) tw.stun = Math.max(tw.stun || 0, 1.3);
+            for (const tw of this.towers) if ((tw.x - sm.x) ** 2 + (tw.y - sm.y) ** 2 <= R * R) tw.stun = Math.max(tw.stun || 0, 2);
             this.fx({ e: 'angelburst', x: sm.x | 0, y: sm.y | 0, r: R | 0 });
           } else if (sm.kind === 'gaze') {
             const R = 3.4 * T;
             for (const tw of this.towers) {
               const dx = tw.x - sm.x, dy = tw.y - sm.y, d = Math.hypot(dx, dy);
               let da = Math.abs(Math.atan2(dy, dx) - sm.dir) % TAU; if (da > Math.PI) da = TAU - da;
-              if (d <= R && (d < T * 0.7 || da < 0.7)) tw.stun = Math.max(tw.stun || 0, 1.8);
+              if (d <= R && (d < T * 0.7 || da < 0.7)) tw.stun = Math.max(tw.stun || 0, 2.5);
             }
             this.fx({ e: 'angelgaze', x: sm.x | 0, y: sm.y | 0, dir: +sm.dir.toFixed(2), r: R | 0 });
           } else {
             const tw = this.towers.find((o) => o.id === sm.id);
-            if (tw) { tw.stun = Math.max(tw.stun || 0, 1.8); this.fx({ e: 'smite', x1: tw.x | 0, y1: (tw.y - 78) | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
+            if (tw) { tw.stun = Math.max(tw.stun || 0, 2.5); this.fx({ e: 'smite', x1: tw.x | 0, y1: (tw.y - 78) | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
           }
         }
         // he calls Seraph warriors down from the heavens
@@ -793,9 +793,9 @@ class Sim {
         }
         // judgment: pillars of light strike towers anywhere on the map
         if ((e.judgeT -= dt) <= 0) {
-          e.judgeT = e.enraged ? 7 : 9;
+          e.judgeT = e.enraged ? 6 : 7.5;
           const picks = this.towers.slice().sort(() => Math.random() - 0.5).slice(0, 3);
-          for (const tw of picks) { tw.stun = Math.max(tw.stun || 0, 3.5); this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
+          for (const tw of picks) { tw.stun = Math.max(tw.stun || 0, 4.5); this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
         }
         // orbs of light that fly at towers
         if ((e.orbT -= dt) <= 0) {
@@ -1044,7 +1044,7 @@ class Sim {
       p.a += clamp(wrapA(want - p.a), -9 * dt, 9 * dt);
       p.x += Math.cos(p.a) * p.speed * dt; p.y += Math.sin(p.a) * p.speed * dt;
       if ((tw.x - p.x) ** 2 + (tw.y - p.y) ** 2 < 18 * 18 || p.life > 3) {
-        tw.stun = Math.max(tw.stun || 0, 2);
+        tw.stun = Math.max(tw.stun || 0, p.kind === 'lightorb' ? 3 : 2);
         this.fx({ e: 'mhit', x: tw.x | 0, y: tw.y | 0, fire: p.kind === 'efire' ? 1 : 0 });
         return true;
       }

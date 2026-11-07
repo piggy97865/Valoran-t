@@ -145,6 +145,7 @@
       <div class="row"><span class="help">Wave</span><input type="text" id="t-wave" value="10" style="width:64px;padding:6px 8px;font-size:15px"><button id="t-jump" class="primary grow">Jump to wave</button></div>
       <div class="row" style="margin-top:8px"><select id="t-enemy" style="flex:1;font-family:inherit;font-weight:800;font-size:14px;padding:7px;border-radius:9px;background:#10151c;color:var(--text);border:1px solid rgba(255,255,255,0.15)"></select><button id="t-spawn">Spawn</button></div>
       <div class="row" style="margin-top:8px"><button id="t-kill" class="danger grow">Kill all enemies</button><button id="t-clear" class="grow">Remove towers</button></div>
+      <div class="row" style="margin-top:8px"><button id="t-lineup" class="primary grow" title="Places about the towers a good player has by wave 40, almost all max level">Place a wave 40 lineup</button></div>
     </div>
     <div class="card" id="team-card" style="display:none"><h3>Team</h3><div class="plist" id="plist"></div></div>
     <div class="card help">
@@ -334,7 +335,7 @@ const ENEMIES = {
   rager: { name: 'Rager', hp: 160, speed: 1.1, armor: 1, bounty: 9, size: 13, color: '#ff7a2e', tip: 'gets much faster when hurt. Finish it with big hits!' },
   titan: { name: 'Colossus', hp: 2200, speed: 0.38, armor: 0, bounty: 800, size: 34, color: '#7d8494', boss: true, special: true, leak: 10 },
   emperor: { name: 'The Void Emperor', hp: 2600, speed: 0.3, armor: 4, bounty: 2500, size: 40, color: '#2a1050', boss: true, special: true, mega: true, leak: 99 },
-  ascended: { name: 'The Ascended Emperor', hp: 4000, speed: 0.26, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
+  ascended: { name: 'The Ascended Emperor', hp: 6200, speed: 0.26, armor: 8, bounty: 4000, size: 40, color: '#fff3c0', boss: true, special: true, mega: true, leak: 99 },
   voidcrystal: { name: 'Void Crystal', hp: 260, speed: 0, armor: 0, bounty: 60, size: 12, color: '#b98cff', crystal: true },
   holyseal: { name: 'Holy Seal', hp: 200, speed: 0, armor: 0, bounty: 80, size: 13, color: '#ffe08a', crystal: true },
   dragon: { name: 'Shadow Dragon', hp: 2300, speed: 0.7, armor: 3, bounty: 350, size: 28, color: '#7a3cc0', boss: true, special: true, flying: true, leak: 8 },
@@ -749,13 +750,13 @@ class Sim {
             this.fx({ e: 'seraph', x: sr.x | 0, y: sr.y | 0 });
           }
         }
-        // golden eye lasers
+        // Heaven's Light: giant beams of light come down from the sky and shine on his strongest towers for 6 seconds
         if ((e.laserT -= dt) <= 0) {
-          e.laserT = e.enraged ? 2 : 2.6;
-          const r = 6 * T;
+          e.laserT = e.enraged ? 4 : 5;
+          const r = 7 * T;
           const targets = this.towers.filter((tw) => !(tw.stun > 0) && (tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r)
-            .sort((p1, p2) => ((p1.x - e.x) ** 2 + (p1.y - e.y) ** 2) - ((p2.x - e.x) ** 2 + (p2.y - e.y) ** 2)).slice(0, 3);
-          for (const tw of targets) { tw.stun = 3; this.fx({ e: 'holybeam', id: e.id, x1: e.x | 0, y1: (e.y - 45) | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
+            .sort((p1, p2) => (p2.level - p1.level) || (((p1.x - e.x) ** 2 + (p1.y - e.y) ** 2) - ((p2.x - e.x) ** 2 + (p2.y - e.y) ** 2))).slice(0, e.enraged ? 4 : 3);
+          for (const tw of targets) { tw.stun = 6; this.fx({ e: 'skybeam', x: tw.x | 0, y: tw.y | 0 }); }
         }
         // judgment: pillars of light strike towers anywhere on the map
         if ((e.judgeT -= dt) <= 0) {
@@ -2623,11 +2624,10 @@ function addFx(e, view) {
       Sound.play('rail');
       break;
     }
-    case 'holybeam': // a huge beam of light that stays on its target for a while
-      effects.push({ k: 'holybeam', id: e.id, x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 2.4, gameTime: true });
-      effects.push({ k: 'flare', x: e.x1, y: e.y1, t: 0, T: 0.6, col: '255,235,170', r: 34 });
-      effects.push({ k: 'text', x: e.x2, y: e.y2 - 24, text: 'STUNNED!', t: 0, T: 1.2, col: '#fff0b0' });
-      Sound.play('rail'); Sound.play('choir');
+    case 'skybeam': // a giant beam of light from the heavens that shines down on a tower for 6 seconds
+      effects.push({ k: 'skybeam', x: e.x, y: e.y, t: 0, T: 6, gameTime: true });
+      effects.push({ k: 'text', x: e.x, y: e.y - 28, text: 'BLINDED!', t: 0, T: 1.3, col: '#fff0b0' });
+      if (!addFx.beamSnd || performance.now() - addFx.beamSnd > 300) { addFx.beamSnd = performance.now(); Sound.play('choir'); Sound.play('rail'); }
       break;
     case 'smite':
       effects.push({ k: 'beam', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.55, col: '255,230,140', w: 7, jag: true, holy: true });
@@ -2839,36 +2839,40 @@ function drawEffects(c, dt) {
       }
       if (f.holy) { c.fillStyle = `rgba(255,255,240,${fade})`; for (let k = 0; k < 6; k++) { const q = Math.random(); c.beginPath(); c.arc(f.x1 + dx * q + nx * (Math.random() - 0.5) * 18, f.y1 + dy * q + ny * (Math.random() - 0.5) * 18, 1.6, 0, TAU); c.fill(); } }
       c.restore();
-    } else if (f.k === 'holybeam') {
-      const own = typeof enemyById !== 'undefined' && enemyById.get(f.id);
-      if (own) { f.x1 = own.x; f.y1 = own.y - 45; }
-      // charge up (thin), blast (huge), then fade away
-      const grow = u < 0.12 ? u / 0.12 : 1, fade = u > 0.8 ? (1 - u) / 0.2 : 1;
-      const W = (u < 0.12 ? 4 : 30 + 5 * Math.sin(f.t * 30)) * fade;
-      const dx = f.x2 - f.x1, dy = f.y2 - f.y1, len = Math.hypot(dx, dy) || 1, ang = Math.atan2(dy, dx);
-      c.save(); c.globalCompositeOperation = 'lighter'; c.translate(f.x1, f.y1); c.rotate(ang);
-      const L = len * grow;
-      for (const [w, a, rgb] of [[W * 2.2, 0.16, '255,190,70'], [W, 0.4, '255,210,100'], [W * 0.45, 0.6, '255,235,160']]) {
-        const g = c.createLinearGradient(0, -w / 2, 0, w / 2);
-        g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.5, `rgba(${rgb},${a * fade})`); g.addColorStop(1, `rgba(${rgb},0)`);
-        c.fillStyle = g; c.fillRect(0, -w / 2, L, w);
+    } else if (f.k === 'skybeam') {
+      // comes crashing down fast, shines for a while, then fades away
+      const drop = Math.min(1, f.t / 0.25), fade = f.t > f.T - 0.6 ? (f.T - f.t) / 0.6 : 1, a = fade;
+      const W = (f.t < 0.25 ? 16 : 34 + 4 * Math.sin(f.t * 14)) * (0.4 + 0.6 * fade);
+      const top = -60, bot = top + (f.y + 14 - top) * drop;
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (const [w, al, rgb] of [[W * 2.6, 0.13, '255,190,70'], [W * 1.4, 0.3, '255,210,110'], [W * 0.7, 0.5, '255,236,170']]) {
+        const g = c.createLinearGradient(f.x - w / 2, 0, f.x + w / 2, 0);
+        g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.5, `rgba(${rgb},${al * a})`); g.addColorStop(1, `rgba(${rgb},0)`);
+        c.fillStyle = g; c.fillRect(f.x - w / 2, top, w, bot - top);
       }
-      c.fillStyle = `rgba(255,255,255,${0.95 * fade})`; c.fillRect(0, -Math.max(1.5, W * 0.12), L, Math.max(3, W * 0.24));
-      // sparks of light racing down the beam
-      c.fillStyle = `rgba(255,255,230,${fade})`;
-      for (let k = 0; k < 10; k++) { const q = (f.t * 2.2 + k / 10) % 1; if (q * len > L) continue; c.beginPath(); c.arc(q * len, Math.sin(k * 5.1 + f.t * 12) * W * 0.4, 2.2, 0, TAU); c.fill(); }
-      // rings travelling along it
-      c.strokeStyle = `rgba(255,235,170,${0.7 * fade})`; c.lineWidth = 2;
-      for (let k = 0; k < 3; k++) { const q = (f.t * 1.3 + k / 3) % 1; if (q * len > L) continue; c.beginPath(); c.ellipse(q * len, 0, 4, W * 0.75, 0, 0, TAU); c.stroke(); }
-      c.restore();
-      if (grow >= 1) { // blazing impact on the tower
-        c.save(); c.globalCompositeOperation = 'lighter';
-        const R = (34 + 6 * Math.sin(f.t * 25)) * fade;
-        const ig = c.createRadialGradient(f.x2, f.y2, 1, f.x2, f.y2, R); ig.addColorStop(0, `rgba(255,255,240,${0.9 * fade})`); ig.addColorStop(0.35, `rgba(255,200,90,${0.6 * fade})`); ig.addColorStop(1, 'rgba(255,200,90,0)');
-        c.fillStyle = ig; c.beginPath(); c.arc(f.x2, f.y2, R, 0, TAU); c.fill();
+      c.fillStyle = `rgba(255,255,245,${0.85 * a})`; c.fillRect(f.x - W * 0.09, top, W * 0.18, bot - top);
+      // light rays drifting inside the beam
+      for (let k = 0; k < 4; k++) { const ox2 = Math.sin(f.t * 1.7 + k * 1.9) * W * 0.5; c.fillStyle = `rgba(255,245,200,${0.18 * a})`; c.fillRect(f.x + ox2 - 2, top, 4, bot - top); }
+      // sparkles floating down
+      c.fillStyle = `rgba(255,255,230,${a})`;
+      for (let k = 0; k < 12; k++) { const q = (f.t * 0.9 + k / 12) % 1, yy = top + q * (f.y - top); if (yy > bot) continue; c.beginPath(); c.arc(f.x + Math.sin(k * 7.7 + f.t * 3) * W * 0.6, yy, 1.8, 0, TAU); c.fill(); }
+      if (drop >= 1) {
+        // glowing pool of light and a spinning holy circle around the tower
+        const R = 40 + 4 * Math.sin(f.t * 8);
+        c.save(); c.translate(f.x, f.y + 6); c.scale(1, 0.45);
+        const pg = c.createRadialGradient(0, 0, 2, 0, 0, R * 1.3); pg.addColorStop(0, `rgba(255,250,220,${0.8 * a})`); pg.addColorStop(1, 'rgba(255,200,90,0)');
+        c.fillStyle = pg; c.beginPath(); c.arc(0, 0, R * 1.3, 0, TAU); c.fill();
+        c.rotate(f.t * 1.4); c.strokeStyle = `rgba(255,225,130,${0.85 * a})`; c.lineWidth = 2.5;
+        c.beginPath(); c.arc(0, 0, R, 0, TAU); c.stroke(); c.beginPath(); c.arc(0, 0, R * 0.75, 0, TAU); c.stroke();
+        for (const off of [0, Math.PI / 3]) { c.beginPath(); for (let k = 0; k < 3; k++) { const an = off + (k / 3) * TAU; c.lineTo(Math.cos(an) * R * 0.75, Math.sin(an) * R * 0.75); } c.closePath(); c.stroke(); }
         c.restore();
-        if (Math.random() < 0.5) effects.push({ k: 'mote', x: f.x2, y: f.y2, vx: (Math.random() - 0.5) * 160, vy: -40 - Math.random() * 120, t: 0, T: 0.6, r: 2.5, hex: '#fff3c0', glow: true });
+        if (Math.random() < 0.35 * a) effects.push({ k: 'mote', x: f.x + (Math.random() - 0.5) * 30, y: f.y, vx: (Math.random() - 0.5) * 40, vy: -60 - Math.random() * 80, t: 0, T: 0.8, r: 2.2, hex: '#fff3c0', glow: true });
       }
+      if (f.t < 0.35) { // impact flash when it lands
+        const ig = c.createRadialGradient(f.x, f.y, 1, f.x, f.y, 70); ig.addColorStop(0, `rgba(255,255,255,${1 - f.t / 0.35})`); ig.addColorStop(1, 'rgba(255,220,120,0)');
+        c.fillStyle = ig; c.beginPath(); c.arc(f.x, f.y, 70, 0, TAU); c.fill();
+      }
+      c.restore();
     } else if (f.k === 'flare') { // bright flash where a beam starts
       c.save(); c.globalCompositeOperation = 'lighter';
       const g = c.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * (1 + u));
@@ -3778,6 +3782,40 @@ if (TEST_MODE) {
   $('t-spawn').onclick = () => { const s = game && game.sim; if (!s) return; s.spawn(sel.value, Math.max(1, s.wave), s.spawnN++ % s.map.paths.length, 0); };
   $('t-kill').onclick = () => { const s = game && game.sim; if (!s) return; for (const e of s.enemies.slice()) if (!e.orbit) s.kill(e, null); s.enemies = []; s.queue = []; };
   $('t-clear').onclick = () => { const s = game && game.sim; if (!s) return; s.towers = []; ui.selected = 0; renderSide(); };
+  // Builds what a good player usually has by wave 40: ~56 towers, a smart mix, almost all max level,
+  // each placed where it covers the most road (the same way the test bot plays).
+  $('t-lineup').onclick = () => {
+    const s = game && game.sim; if (!s) return;
+    const pid = game.me, ground = [], air = [];
+    for (const path of s.map.paths) for (let d = 0; d < path.total; d += 10) { let sg = path.segs[0]; for (const x of path.segs) if (d >= x.start) sg = x; ground.push([sg.ax + sg.dx * (d - sg.start), sg.ay + sg.dy * (d - sg.start)]); }
+    for (const fp of s.map.flyPaths) for (let d = 0; d < fp.total; d += 10) air.push([fp.segs[0].ax + fp.segs[0].dx * d, fp.segs[0].ay + fp.segs[0].dy * d]);
+    const cov = (tx, ty, r, pts) => { const cx = tx * T + T / 2, cy = ty * T + T / 2; let n = 0; for (const [x, y] of pts) if ((x - cx) ** 2 + (y - cy) ** 2 <= (r * T) ** 2) n++; return n; };
+    const order = ['bolt', 'bolt', 'cannon', 'bolt', 'frost', 'tesla', 'sniper', 'rocket', 'cannon', 'beam', 'banner', 'rocket', 'tesla', 'rail', 'beam', 'frost', 'rocket', 'sniper', 'poison', 'banner', 'beam', 'mortar', 'flame'];
+    const best = (kind) => {
+      const D = TOWERS[kind]; let bt = null, bs = -1;
+      for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < COLS; tx++) {
+        if (!s.tileFree(tx, ty)) continue;
+        let sc;
+        if (kind === 'banner') { sc = 0; for (const t of s.towers) if ((t.x - tx * T - T / 2) ** 2 + (t.y - ty * T - T / 2) ** 2 <= (D.range[0] * T) ** 2) sc += 3; }
+        else sc = cov(tx, ty, D.range[0], ground) * (D.air ? 0.7 : 1) + (D.air ? cov(tx, ty, D.range[0], air) * 2.2 : 0);
+        sc += Math.random() * 0.5;
+        if (sc > bs) { bs = sc; bt = [tx, ty]; }
+      }
+      return bt;
+    };
+    const keep = s.gold[pid]; s.gold[pid] = 1e12;
+    const want = 56; let placed = 0;
+    for (let k = 0; placed < want && k < want * 3; k++) {
+      const kind = order[k % order.length], spot = best(kind); if (!spot) break;
+      if (s.apply(pid, { a: 'build', kind, tx: spot[0], ty: spot[1] })) continue;
+      placed++;
+      const tw = s.towers[s.towers.length - 1], lvl = placed % 10 === 0 ? 3 : 4;
+      while (tw.level < lvl) if (s.apply(pid, { a: 'up', id: tw.id })) break;
+    }
+    s.gold[pid] = keep;
+    toast && toast(`Placed ${placed} towers (a typical wave 40 lineup)`);
+    renderSide();
+  };
 }
 resize();
 requestAnimationFrame(frame);

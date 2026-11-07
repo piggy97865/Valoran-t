@@ -2204,6 +2204,36 @@ function drawEnemy(c, e, t) {
         c.stroke();
       }
       c.translate(0, -8 + fl);
+      const VC = enr ? '255,60,80' : '170,90,255', VC2 = enr ? '255,170,120' : '230,200,255';
+      // --- a black hole spinning behind him ---
+      c.save(); c.translate(0, -s * 1.45);
+      const BH = s * 1.1;
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const lg = c.createRadialGradient(0, 0, BH * 0.4, 0, 0, BH * 1.6); lg.addColorStop(0, `rgba(${VC},0.55)`); lg.addColorStop(1, `rgba(${VC},0)`);
+      c.fillStyle = lg; c.beginPath(); c.arc(0, 0, BH * 1.6, 0, TAU); c.fill();
+      c.restore();
+      const disk = (from, to) => { // the glowing accretion disk, tilted
+        c.save(); c.rotate(-0.28); c.scale(1, 0.3); c.globalCompositeOperation = 'lighter';
+        for (const [w, a] of [[16, 0.25], [8, 0.55], [3, 0.95]]) {
+          c.strokeStyle = `rgba(${a > 0.9 ? VC2 : VC},${a})`; c.lineWidth = w;
+          c.beginPath(); c.arc(0, 0, BH * 1.35, from, to); c.stroke();
+        }
+        c.setLineDash([6, 10]); c.lineDashOffset = -t * 60; c.strokeStyle = `rgba(${VC2},0.8)`; c.lineWidth = 2;
+        c.beginPath(); c.arc(0, 0, BH * 1.1, from, to); c.stroke(); c.setLineDash([]);
+        c.restore();
+      };
+      disk(Math.PI, TAU); // back half
+      c.fillStyle = '#000'; c.beginPath(); c.arc(0, 0, BH * 0.6, 0, TAU); c.fill(); // the event horizon
+      c.strokeStyle = `rgba(${VC2},0.95)`; c.lineWidth = 2; c.shadowColor = `rgb(${VC})`; c.shadowBlur = 12; c.beginPath(); c.arc(0, 0, BH * 0.63, 0, TAU); c.stroke(); c.shadowBlur = 0;
+      disk(0, Math.PI); // front half
+      c.restore();
+      // --- torn shadow robes flowing behind him ---
+      for (let k = 0; k < 6; k++) {
+        const bx = (k - 2.5) * s * 0.2, sw = Math.sin(t * 2.4 + k * 1.3) * 7, L = s * (1.45 + 0.2 * Math.sin(k * 3.1));
+        const rg2 = c.createLinearGradient(0, -s * 0.3, 0, L); rg2.addColorStop(0, '#12052a'); rg2.addColorStop(1, `rgba(${enr ? '60,0,20' : '30,8,70'},0)`);
+        c.fillStyle = rg2; c.beginPath(); c.moveTo(bx - 7, -s * 0.3);
+        c.quadraticCurveTo(bx - 8 + sw, L * 0.6, bx + sw * 1.6, L); c.quadraticCurveTo(bx + 8 + sw, L * 0.6, bx + 7, -s * 0.3); c.closePath(); c.fill();
+      }
       // cape full of stars
       const capeSway = Math.sin(t * 2 + e.id) * 4;
       const cape = () => { c.beginPath(); c.moveTo(-s * 0.55, -s * 0.55); c.quadraticCurveTo(-s * 1.0 + capeSway, s * 0.6, -s * 0.72 + capeSway, s * 1.4); for (let k = 0; k <= 8; k++) c.lineTo(-s * 0.72 + capeSway + (k / 8) * s * 1.44, s * 1.4 + (k % 2 ? 7 : 0)); c.quadraticCurveTo(s * 1.0 + capeSway, s * 0.6, s * 0.55, -s * 0.55); c.closePath(); };
@@ -2226,18 +2256,51 @@ function drawEnemy(c, e, t) {
       c.beginPath(); c.moveTo(-s * 0.38, -s * 0.45); c.lineTo(0, s * 0.45); c.lineTo(s * 0.38, -s * 0.45); c.stroke();
       c.fillStyle = enr ? '#ff3b4f' : '#c98cff'; c.shadowColor = c.fillStyle; c.shadowBlur = 14;
       c.beginPath(); c.moveTo(0, s * 0.05); c.lineTo(5, s * 0.2); c.lineTo(0, s * 0.35); c.lineTo(-5, s * 0.2); c.closePath(); c.fill(); c.shadowBlur = 0;
-      // floating gauntlets holding void orbs
+      // spiked shoulder armor
       for (const k of [-1, 1]) {
+        c.save(); c.translate(k * s * 0.42, -s * 0.5); c.scale(k, 1);
+        c.fillStyle = flash ? '#fff' : metal(c, -10, -8, 12, 8, '#2a1450'); c.strokeStyle = '#ffcf4a'; c.lineWidth = 1.6;
+        c.beginPath(); c.ellipse(0, 0, 11, 7, 0.3, 0, TAU); c.fill(); c.stroke();
+        c.fillStyle = '#ffcf4a';
+        for (const [sx, sl] of [[-3, 13], [4, 10]]) { c.beginPath(); c.moveTo(sx - 2.5, -4); c.lineTo(sx + 3, -4 - sl); c.lineTo(sx + 3, -4); c.closePath(); c.fill(); }
+        c.restore();
+      }
+      // the void scythe in his right hand
+      {
+        const hx = s * 0.82, hy = s * 0.15 + Math.sin(t * 2.5 + 1) * 5;
+        c.save(); c.translate(hx, hy); c.rotate(0.18 + Math.sin(t * 1.2) * 0.06);
+        c.strokeStyle = '#1a0838'; c.lineWidth = 4; c.beginPath(); c.moveTo(0, s * 0.9); c.lineTo(0, -s * 1.55); c.stroke();
+        c.strokeStyle = '#ffcf4a'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(0, s * 0.9); c.lineTo(0, -s * 1.55); c.stroke();
+        for (const yy of [-s * 0.5, s * 0.3]) { c.fillStyle = '#ffcf4a'; c.fillRect(-3, yy, 6, 3); }
+        c.translate(0, -s * 1.5);
+        c.save(); c.globalCompositeOperation = 'lighter'; c.shadowColor = `rgb(${VC})`; c.shadowBlur = 18;
+        const blade = () => { c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-s * 0.9, -s * 0.55, -s * 1.5, s * 0.25); c.quadraticCurveTo(-s * 0.85, -s * 0.2, 0, 7); c.closePath(); };
+        c.fillStyle = `rgba(${VC},0.85)`; blade(); c.fill();
+        c.restore();
+        c.strokeStyle = '#ffffff'; c.lineWidth = 2.5; c.shadowColor = `rgb(${VC})`; c.shadowBlur = 10; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-s * 0.9, -s * 0.55, -s * 1.5, s * 0.25); c.stroke(); c.shadowBlur = 0;
+        c.restore();
+      }
+      // floating gauntlets: a void orb in the left hand, the scythe in the right
+      for (const k of [-1, 1]) {
+        if (k === 1) { const hx = s * 0.82, hy = s * 0.15 + Math.sin(t * 2.5 + k) * 5; c.fillStyle = flash ? '#fff' : metal(c, hx - 8, hy - 8, hx + 8, hy + 8, '#c9a43a'); c.strokeStyle = '#5a3a08'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(hx - 7, hy - 4, 14, 9, 3); c.fill(); c.stroke(); continue; }
         const hx = k * s * 0.82, hy = s * 0.15 + Math.sin(t * 2.5 + k) * 5;
         const og = c.createRadialGradient(hx, hy, 1, hx, hy, 11); og.addColorStop(0, '#ffffff'); og.addColorStop(0.35, enr ? '#ff4a6a' : '#b98cff'); og.addColorStop(1, 'rgba(80,20,160,0)');
         c.fillStyle = og; c.beginPath(); c.arc(hx, hy, 11, 0, TAU); c.fill();
         c.fillStyle = flash ? '#fff' : metal(c, hx - 8, hy - 8, hx + 8, hy + 8, '#c9a43a'); c.strokeStyle = '#5a3a08'; c.lineWidth = 1.5;
         c.beginPath(); c.roundRect(hx - 7, hy + 5, 14, 9, 3); c.fill(); c.stroke();
       }
-      // head + three glowing eyes
-      c.fillStyle = flash ? '#fff' : ball(c, s * 0.4, '#2a1050', false, 0, -s * 0.85);
-      c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 2.5;
-      c.beginPath(); c.ellipse(0, -s * 0.85, s * 0.34, s * 0.4, 0, 0, TAU); c.fill(); c.stroke();
+      // a deep hood: nothing inside but darkness and burning eyes
+      const hood = () => { c.beginPath(); c.moveTo(0, -s * 1.42); c.quadraticCurveTo(s * 0.5, -s * 1.1, s * 0.44, -s * 0.48); c.quadraticCurveTo(0, -s * 0.38, -s * 0.44, -s * 0.48); c.quadraticCurveTo(-s * 0.5, -s * 1.1, 0, -s * 1.42); c.closePath(); };
+      const hg3 = c.createLinearGradient(0, -s * 1.4, 0, -s * 0.45); hg3.addColorStop(0, '#2a1050'); hg3.addColorStop(1, '#0c0420');
+      c.fillStyle = flash ? '#fff' : hg3; hood(); c.fill(); c.strokeStyle = '#ffcf4a'; c.lineWidth = 1.8; c.stroke();
+      c.fillStyle = '#000'; c.beginPath(); c.ellipse(0, -s * 0.84, s * 0.3, s * 0.34, 0, 0, TAU); c.fill();
+      // smoke rising from his eyes
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (const k of [-1, 1]) for (let j = 0; j < 5; j++) {
+        const q = (t * 0.9 + j / 5) % 1, wx = k * s * 0.17 + Math.sin(t * 3 + j + k) * 3 * q, wy = -s * 0.8 - q * s * 0.75;
+        c.fillStyle = `rgba(${VC},${0.45 * (1 - q)})`; c.beginPath(); c.arc(wx, wy, 2.5 + q * 3, 0, TAU); c.fill();
+      }
+      c.restore();
       const eye = enr ? '#ff3b4f' : '#e9d0ff';
       c.shadowColor = enr ? '#ff2030' : '#b98cff'; c.shadowBlur = 16; c.fillStyle = eye;
       for (const k of [-1, 1]) { c.beginPath(); c.ellipse(k * s * 0.17, -s * 0.78, 4.5, 2.4, k * 0.25, 0, TAU); c.fill(); }
@@ -2264,6 +2327,13 @@ function drawEnemy(c, e, t) {
         const ig = c.createRadialGradient(0, 0, R * 0.6, 0, 0, R); ig.addColorStop(0, 'rgba(160,90,255,0.05)'); ig.addColorStop(1, 'rgba(190,130,255,0.45)');
         c.fillStyle = ig; c.beginPath(); c.arc(0, 0, R, 0, TAU); c.fill();
         c.strokeStyle = 'rgba(220,180,255,0.9)'; c.lineWidth = 2.5; c.beginPath(); c.arc(0, 0, R, t * 3, t * 3 + 1.5); c.stroke(); c.beginPath(); c.arc(0, 0, R, t * 3 + 3.1, t * 3 + 4.6); c.stroke();
+      }
+      for (let k = 0; k < 7; k++) { // dark shards orbiting him
+        const ang = t * 0.7 + (k / 7) * TAU; if (Math.sin(ang) < 0) continue;
+        c.save(); c.translate(Math.cos(ang) * s * 1.35, Math.sin(ang) * s * 0.45 + s * 0.2); c.rotate(t * 2 + k);
+        c.fillStyle = '#07020f'; c.strokeStyle = `rgba(${VC},0.95)`; c.lineWidth = 1.4; c.shadowColor = `rgb(${VC})`; c.shadowBlur = 8;
+        c.beginPath(); c.moveTo(0, -7); c.lineTo(3.5, 0); c.lineTo(0, 7); c.lineTo(-3.5, 0); c.closePath(); c.fill(); c.stroke(); c.shadowBlur = 0;
+        c.restore();
       }
       if (enr) { // red cracks
         c.strokeStyle = `rgba(255,70,60,${0.6 + 0.4 * Math.sin(t * 10)})`; c.lineWidth = 2;

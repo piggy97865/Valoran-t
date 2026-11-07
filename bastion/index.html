@@ -328,6 +328,7 @@ const ENEMIES = {
   blinker: { name: 'Blinker', hp: 70, speed: 1.4, armor: 0, bounty: 6, size: 10, color: '#b76bff', tip: 'teleports forward every few seconds. Slow it with Frost!' },
   shellback: { name: 'Shellback', hp: 260, speed: 0.85, armor: 2, bounty: 12, size: 15, color: '#4f9a54', shell: true, tip: 'barely hurt by explosions, fire and poison. Use Bolt, Sniper or Railgun!' },
   bomber: { name: 'Bomber', hp: 120, speed: 1.2, armor: 0, bounty: 8, size: 12, color: '#3a3a44', bomb: true, tip: 'explodes when it dies and freezes towers next to it. Kill it from far away!' },
+  seraph: { name: 'Seraph', hp: 95, speed: 1.15, armor: 2, bounty: 15, size: 13, color: '#fff3c0', flying: true },
   stormwing: { name: 'Stormwing', hp: 90, speed: 2.1, armor: 0, bounty: 9, size: 11, color: '#ffd84a', flying: true, noSlow: true, tip: "a fast flyer that can't be slowed. Bring anti-air!" },
   brood: { name: 'Broodmother', hp: 520, speed: 0.75, armor: 2, bounty: 20, size: 18, color: '#7a5236', tip: 'keeps spawning swarms. Splash damage clears them up!' },
   rager: { name: 'Rager', hp: 160, speed: 1.1, armor: 1, bounty: 9, size: 13, color: '#ff7a2e', tip: 'gets much faster when hurt. Finish it with big hits!' },
@@ -535,7 +536,7 @@ class Sim {
     if (E.tip && !this.seen.has(type)) { this.seen.add(type); this.fx({ e: 'intro', type }); }
     if (type === 'phantom') { e.phaseT = 5; e.hidden = false; }
     if (type === 'emperor') { e.ephase = 0; e.portalT = 6; e.eclipseT = 9; e.laserT = 3; e.baseSpeed = e.speed; this.fx({ e: 'emperor', x: e.x | 0, y: e.y | 0 }); }
-    if (type === 'ascended') { e.laserT = 2.5; e.judgeT = 6; e.orbT = 4; e.descentT = 7; e.skyPhase = 0; e.skyH = 0; e.rain = 0; e.baseSpeed = e.speed; }
+    if (type === 'ascended') { e.laserT = 2.5; e.judgeT = 6; e.orbT = 4; e.descentT = 7; e.skyPhase = 0; e.skyH = 0; e.rain = 0; e.baseSpeed = e.speed; e.smiteT = 3; e.smiteK = 0; e.seraphT = 5; }
     if (type === 'titan') { e.phase = 0; e.armor = 6; e.stompT = 7; e.baseSpeed = e.speed; e.missileT = 3; }
     this.placeEnemy(e);
     this.enemies.push(e);
@@ -731,14 +732,30 @@ class Sim {
           const pool = this.towers.filter((tw) => !(tw.stun > 0)), tw = pool[Math.floor(Math.random() * pool.length)];
           if (tw) { tw.stun = 2.5; this.fx({ e: 'judge', x: tw.x | 0, y: tw.y | 0 }); }
         }
-        if (e.skyPhase) { e.laserT = Math.max(e.laserT, 0.5); e.judgeT = Math.max(e.judgeT, 0.5); e.orbT = Math.max(e.orbT, 0.5); }
+        if (e.skyPhase) { e.laserT = Math.max(e.laserT, 0.5); e.judgeT = Math.max(e.judgeT, 0.5); e.orbT = Math.max(e.orbT, 0.5); e.smiteT = Math.max(e.smiteT, 0.5); e.seraphT = Math.max(e.seraphT, 0.5); }
+        // three guardian angels float above him and take turns smiting towers with holy lightning
+        if ((e.smiteT -= dt) <= 0) {
+          e.smiteT = e.enraged ? 1.6 : 2.4;
+          const k = e.smiteK++ % 3, a = angelPos(e, k), r = 6 * T;
+          const pool = this.towers.filter((tw) => !(tw.stun > 0) && (tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r);
+          const tw = pool[Math.floor(Math.random() * pool.length)];
+          if (tw) { tw.stun = Math.max(tw.stun || 0, 1.5); this.fx({ e: 'smite', x1: a.x | 0, y1: a.y | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
+        }
+        // he calls Seraph warriors down from the heavens
+        if ((e.seraphT -= dt) <= 0) {
+          e.seraphT = e.enraged ? 6.5 : 8.5;
+          for (let k = 0; k < 2; k++) {
+            const sr = this.spawn('seraph', this.wave, e.path, Math.max(0, e.dist + (k ? 30 : -30)));
+            this.fx({ e: 'seraph', x: sr.x | 0, y: sr.y | 0 });
+          }
+        }
         // golden eye lasers
         if ((e.laserT -= dt) <= 0) {
           e.laserT = e.enraged ? 2 : 2.6;
           const r = 6 * T;
           const targets = this.towers.filter((tw) => !(tw.stun > 0) && (tw.x - e.x) ** 2 + (tw.y - e.y) ** 2 <= r * r)
             .sort((p1, p2) => ((p1.x - e.x) ** 2 + (p1.y - e.y) ** 2) - ((p2.x - e.x) ** 2 + (p2.y - e.y) ** 2)).slice(0, 3);
-          for (const tw of targets) { tw.stun = 3; this.fx({ e: 'vlaser', x1: e.x | 0, y1: (e.y - 45) | 0, x2: tw.x | 0, y2: tw.y | 0, gold: 1 }); }
+          for (const tw of targets) { tw.stun = 3; this.fx({ e: 'holybeam', id: e.id, x1: e.x | 0, y1: (e.y - 45) | 0, x2: tw.x | 0, y2: tw.y | 0 }); }
         }
         // judgment: pillars of light strike towers anywhere on the map
         if ((e.judgeT -= dt) <= 0) {
@@ -1177,6 +1194,11 @@ class Sim {
   }
 }
 function wrapA(a) { return ((a + Math.PI * 3) % TAU) - Math.PI; }
+// Where each of the Ascended Emperor's three guardian angels hovers (same maths for the game and the drawing).
+function angelPos(e, k) {
+  const ang = (e.x + e.y) * 0.012 + k * 2.094;
+  return { x: e.x + Math.cos(ang) * 84, y: e.y - 128 + Math.sin(ang) * 22, ang };
+}
 function turn(a, b, max) { let d = ((b - a + Math.PI * 3) % TAU) - Math.PI; return a + clamp(d, -max, max); }
 
 /* =========================================================================
@@ -1773,6 +1795,10 @@ function drawEnemy(c, e, t) {
       }
       c.fillStyle = '#ffe36e'; c.beginPath(); c.arc(3, -s - 12, 2.6, 0, TAU); c.fill();
       drawEyes(c, a, s, { angry: true, r: s * 0.2, white: '#ffd0d0' });
+      break;
+    }
+    case 'seraph': {
+      c.save(); c.scale(1.35, 1.35); drawAngel(c, t + e.id, 1, '#ffe9a0', '255,235,170', flash, a); c.restore();
       break;
     }
     case 'stormwing': {
@@ -2387,6 +2413,13 @@ function drawEnemy(c, e, t) {
         c.strokeStyle = `rgba(${glowRGB},0.95)`; c.lineWidth = 2.5;
         for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(0, -s * 0.2, R, t * 2 + k * 2.09, t * 2 + k * 2.09 + 1); c.stroke(); }
       }
+      // three guardian angels hovering above him
+      c.restore(); c.save(); c.translate(e.x, e.y);
+      if (skyH <= 0) for (let k = 0; k < 3; k++) {
+        const ap = angelPos(e, k); c.save(); c.translate(ap.x - e.x, ap.y - e.y + Math.sin(t * 2.5 + k * 2) * 4);
+        drawAngel(c, t + k, 1.15, G1, glowRGB);
+        c.restore();
+      }
       // sparkles
       for (let k = 0; k < 8; k++) { const sp = (t * 0.7 + k / 8) % 1, ang = k * 1.9 + e.id; c.fillStyle = `rgba(255,255,255,${1 - sp})`; c.beginPath(); c.arc(Math.cos(ang) * s * 1.3, Math.sin(ang) * s * 0.8 - sp * 24, 2, 0, TAU); c.fill(); }
       break;
@@ -2461,6 +2494,31 @@ function drawEnemy(c, e, t) {
   }
 }
 
+// A small winged angel (used for the guardian angels and Seraph warriors)
+function drawAngel(c, t, sc, gold, glowRGB, flash, faceAng) {
+  c.save(); c.scale(sc, sc);
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const gg = c.createRadialGradient(0, -4, 1, 0, -4, 26); gg.addColorStop(0, `rgba(${glowRGB},0.55)`); gg.addColorStop(1, `rgba(${glowRGB},0)`);
+  c.fillStyle = gg; c.beginPath(); c.arc(0, -4, 26, 0, TAU); c.fill(); c.restore();
+  const flap = Math.sin(t * 9) * 0.35;
+  for (const k of [-1, 1]) for (let f = 0; f < 3; f++) {
+    c.save(); c.scale(k, 1); c.rotate(-0.5 - f * 0.35 + flap);
+    const wg = c.createLinearGradient(2, -6, 22, -10); wg.addColorStop(0, '#ffffff'); wg.addColorStop(1, gold);
+    c.fillStyle = flash ? '#fff' : wg; c.strokeStyle = '#c9932a'; c.lineWidth = 0.8;
+    c.beginPath(); c.ellipse(12 - f * 1.5, -6, 11 - f * 1.5, 3.2, 0, 0, TAU); c.fill(); c.stroke();
+    c.restore();
+  }
+  const rg = c.createLinearGradient(0, -8, 0, 12); rg.addColorStop(0, '#ffffff'); rg.addColorStop(1, gold);
+  c.fillStyle = flash ? '#fff' : rg; c.strokeStyle = '#c9932a'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(-4, -4); c.lineTo(-7, 12); c.lineTo(7, 12); c.lineTo(4, -4); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#fff6e0'; c.beginPath(); c.arc(0, -8, 4.5, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = gold; c.lineWidth = 2; c.shadowColor = gold; c.shadowBlur = 8;
+  c.beginPath(); c.ellipse(0, -15, 5.5, 1.8, 0, 0, TAU); c.stroke(); c.shadowBlur = 0;
+  // glowing spear of light
+  c.strokeStyle = '#ffffff'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(7, 10); c.lineTo(11, -16); c.stroke();
+  c.fillStyle = '#fff3c0'; c.beginPath(); c.moveTo(11.5, -21); c.lineTo(13.5, -15); c.lineTo(9, -16); c.closePath(); c.fill();
+  c.restore();
+}
 // Floating particles around bosses (embers, bubbles, souls, smoke…)
 function bossAmbient(e, dt) {
   const E = ENEMIES[e.type];
@@ -2542,14 +2600,33 @@ function addFx(e, view) {
       Sound.play('pop');
       break;
     case 'vlaser': {
-      const c1 = e.gold ? '255,215,110' : e.red ? '255,60,90' : '180,100,255';
-      effects.push({ k: 'line', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.7, col: c1, w: 12 });
-      effects.push({ k: 'line', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.55, col: '255,240,255', w: 4 });
-      effects.push({ k: 'ring', x: e.x2, y: e.y2, r: 26, t: 0, T: 0.5, col: c1, fill: true });
-      effects.push({ k: 'text', x: e.x2, y: e.y2 - 24, text: 'STUNNED!', t: 0, T: 1, col: e.red ? '#ff8aa0' : '#d8b8ff' });
+      const c1 = e.gold ? '255,215,110' : e.red ? '255,60,90' : '170,90,255';
+      effects.push({ k: 'beam', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.75, col: c1, w: 10, jag: !e.gold, holy: !!e.gold });
+      effects.push({ k: 'flare', x: e.x1, y: e.y1, t: 0, T: 0.45, col: c1, r: 26 });
+      burst(e.x2, e.y2, e.gold ? '#fff3c0' : e.red ? '#ff7a8a' : '#c98cff', 16, 220);
+      effects.push({ k: 'ring', x: e.x2, y: e.y2, r: 34, t: 0, T: 0.5, col: c1, fill: true });
+      effects.push({ k: 'text', x: e.x2, y: e.y2 - 24, text: 'STUNNED!', t: 0, T: 1, col: e.gold ? '#fff0b0' : e.red ? '#ff8aa0' : '#d8b8ff' });
       Sound.play('rail');
       break;
     }
+    case 'holybeam': // a huge beam of light that stays on its target for a while
+      effects.push({ k: 'holybeam', id: e.id, x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 2.4, gameTime: true });
+      effects.push({ k: 'flare', x: e.x1, y: e.y1, t: 0, T: 0.6, col: '255,235,170', r: 34 });
+      effects.push({ k: 'text', x: e.x2, y: e.y2 - 24, text: 'STUNNED!', t: 0, T: 1.2, col: '#fff0b0' });
+      Sound.play('rail'); Sound.play('choir');
+      break;
+    case 'smite':
+      effects.push({ k: 'beam', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, t: 0, T: 0.55, col: '255,230,140', w: 7, jag: true, holy: true });
+      effects.push({ k: 'flare', x: e.x1, y: e.y1, t: 0, T: 0.4, col: '255,240,190', r: 22 });
+      burst(e.x2, e.y2, '#fff3c0', 12, 180);
+      effects.push({ k: 'ring', x: e.x2, y: e.y2, r: 26, t: 0, T: 0.4, col: '255,240,190', fill: true });
+      effects.push({ k: 'text', x: e.x2, y: e.y2 - 24, text: 'SMITED!', t: 0, T: 0.9, col: '#fff0b0' });
+      Sound.play('zap');
+      break;
+    case 'seraph':
+      effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 0.9, small: 1 });
+      burst(e.x, e.y, '#ffffff', 10, 120);
+      break;
     case 'empfall':
       cinematicUntil = performance.now() + 9000;
       effects.push({ k: 'fall', x: e.x, y: e.y, t: 0, T: 6.2, gameTime: true });
@@ -2578,8 +2655,10 @@ function addFx(e, view) {
       Sound.play('clear');
       break;
     case 'slam':
-      effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.8, col: '255,235,170', fill: true });
-      effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r * 1.5, t: 0, T: 1.1, col: '255,255,255' });
+      effects.push({ k: 'shock', x: e.x, y: e.y, r: e.r * 1.6, t: 0, T: 0.9, col: '255,235,170' });
+      effects.push({ k: 'shock', x: e.x, y: e.y, r: e.r * 2.4, t: 0, T: 1.3, col: '255,255,255' });
+      effects.push({ k: 'runes', x: e.x, y: e.y, r: 110, t: 0, T: 1.4, col: '255,225,130' });
+      for (let i = 0; i < 26; i++) { const ang = Math.random() * TAU, sp = 60 + Math.random() * 160; effects.push({ k: 'feather', x: e.x, y: e.y - 20, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6 - 60, rot: Math.random() * TAU, t: 0, T: 1.8 + Math.random() }); }
       effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 0.8 });
       effects.push({ k: 'flashw', t: 0, T: 0.5 });
       for (let i = 0; i < 24; i++) { const ang = (i / 24) * TAU, sp = 160 + Math.random() * 120; effects.push({ k: 'dot', x: e.x, y: e.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, t: 0, T: 0.7, r: 3, hex: '#fff3c0' }); }
@@ -2588,11 +2667,18 @@ function addFx(e, view) {
       break;
     case 'judge':
       effects.push({ k: 'pillar', x: e.x, y: e.y, t: 0, T: 1.1, small: 1 });
+      effects.push({ k: 'runes', x: e.x, y: e.y, r: 34, t: 0, T: 1.1, col: '255,225,130' });
+      burst(e.x, e.y, '#fff3c0', 10, 140);
       effects.push({ k: 'text', x: e.x, y: e.y - 26, text: 'JUDGED!', t: 0, T: 1.1, col: '#ffe9a0' });
       Sound.play('zap');
       break;
-    case 'portal': effects.push({ k: 'ring', x: e.x, y: e.y, r: 60, t: 0, T: 0.7, col: '150,80,255', fill: true }); Sound.play('zap'); break;
-    case 'eclipse': effects.push({ k: 'eclipse', t: 0, T: 1.1 }); effects.push({ k: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.9, col: '120,40,200', fill: true }); effects.push({ k: 'text', x: e.x, y: e.y - 70, text: 'ECLIPSE!', t: 0, T: 1.2, col: '#c98cff' }); Sound.play('boss'); break;
+    case 'portal': effects.push({ k: 'portal', x: e.x - 30, y: e.y + 10, t: 0, T: 1.4 }); Sound.play('zap'); break;
+    case 'eclipse':
+      effects.push({ k: 'eclipse', t: 0, T: 1.6 });
+      effects.push({ k: 'blacksun', x: e.x, y: e.y - 90, t: 0, T: 1.6 });
+      effects.push({ k: 'shock', x: e.x, y: e.y, r: e.r, t: 0, T: 1.0, col: '150,70,255' });
+      effects.push({ k: 'text', x: e.x, y: e.y - 70, text: 'ECLIPSE!', t: 0, T: 1.2, col: '#c98cff' });
+      Sound.play('boss'); break;
     case 'splat2': effects.push({ k: 'ring', x: e.x, y: e.y, r: 36, t: 0, T: 0.4, col: '255,122,217' }); Sound.play('splat'); break;
     case 'cleared': banner('Wave ' + e.n + ' cleared', '+' + e.bonus + ' gold'); Sound.play('clear'); break;
     case 'gift': {
@@ -2602,6 +2688,9 @@ function addFx(e, view) {
     }
     case 'won': case 'lost': setTimeout(() => showEnd(e.e === 'won'), 900); break;
   }
+}
+function burst(x, y, hex, n, speed) {
+  for (let i = 0; i < n; i++) { const a = Math.random() * TAU, sp = speed * (0.4 + Math.random() * 0.6); effects.push({ k: 'mote', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0, T: 0.5 + Math.random() * 0.4, r: 2 + Math.random() * 2, hex, glow: true }); }
 }
 function gameDt(dt) {
   if (!game) return dt;
@@ -2704,7 +2793,10 @@ function drawEffects(c, dt) {
       const g = c.createLinearGradient(f.x - w, 0, f.x + w, 0);
       g.addColorStop(0, 'rgba(255,230,150,0)'); g.addColorStop(0.5, `rgba(255,248,220,${0.85 * a2})`); g.addColorStop(1, 'rgba(255,230,150,0)');
       c.fillStyle = g; c.fillRect(f.x - w, -50, w * 2, f.y + 70);
+      c.fillStyle = `rgba(255,255,255,${0.9 * a2})`; c.fillRect(f.x - w * 0.12, -50, w * 0.24, f.y + 60);
       c.fillStyle = `rgba(255,240,190,${0.6 * a2})`; c.beginPath(); c.ellipse(f.x, f.y, w * 1.2, w * 0.45, 0, 0, TAU); c.fill();
+      c.fillStyle = `rgba(255,255,235,${a2})`;
+      for (let k = 0; k < 8; k++) { const q = ((f.t * 1.8 + k / 8) % 1); c.beginPath(); c.arc(f.x + Math.sin(k * 7.3) * w * 0.6, q * (f.y + 20), 1.8, 0, TAU); c.fill(); }
       c.restore();
     } else if (f.k === 'target') { // where the Ascended Emperor will land
       const pul = 0.5 + 0.5 * Math.sin(f.t * 14);
@@ -2715,6 +2807,109 @@ function drawEffects(c, dt) {
       c.rotate(f.t * 2);
       for (let k = 0; k < 4; k++) { c.rotate(Math.PI / 2); c.beginPath(); c.moveTo(56, 0); c.lineTo(90, 0); c.stroke(); }
       c.fillStyle = `rgba(255,240,180,${0.15 + 0.15 * pul})`; c.beginPath(); c.arc(0, 0, 48, 0, TAU); c.fill();
+      c.restore();
+    } else if (f.k === 'beam') { // crackling energy beam (void) or shining holy beam
+      const fade = 1 - u, w = f.w * (u < 0.15 ? u / 0.15 : 1) * (0.7 + 0.3 * fade);
+      c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
+      const dx = f.x2 - f.x1, dy = f.y2 - f.y1, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      const pts = [];
+      const segs = Math.max(4, Math.floor(len / 22));
+      for (let k = 0; k <= segs; k++) { const q = k / segs, off = f.jag && k > 0 && k < segs ? (Math.random() - 0.5) * 16 : 0; pts.push([f.x1 + dx * q + nx * off, f.y1 + dy * q + ny * off]); }
+      const path = () => { c.beginPath(); pts.forEach(([x, y], k) => (k ? c.lineTo(x, y) : c.moveTo(x, y))); };
+      c.strokeStyle = `rgba(${f.col},${0.22 * fade})`; c.lineWidth = w * 3.2; path(); c.stroke();
+      c.strokeStyle = `rgba(${f.col},${0.75 * fade})`; c.lineWidth = w; path(); c.stroke();
+      c.strokeStyle = `rgba(255,255,255,${0.95 * fade})`; c.lineWidth = Math.max(1.5, w * 0.32); path(); c.stroke();
+      if (f.jag) { // side forks
+        c.strokeStyle = `rgba(${f.col},${0.6 * fade})`; c.lineWidth = 1.6;
+        for (let k = 1; k < pts.length - 1; k += 2) { const [x, y] = pts[k], a = Math.random() * TAU; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * 14, y + Math.sin(a) * 14); c.stroke(); }
+      }
+      if (f.holy) { c.fillStyle = `rgba(255,255,240,${fade})`; for (let k = 0; k < 6; k++) { const q = Math.random(); c.beginPath(); c.arc(f.x1 + dx * q + nx * (Math.random() - 0.5) * 18, f.y1 + dy * q + ny * (Math.random() - 0.5) * 18, 1.6, 0, TAU); c.fill(); } }
+      c.restore();
+    } else if (f.k === 'holybeam') {
+      const own = typeof enemyById !== 'undefined' && enemyById.get(f.id);
+      if (own) { f.x1 = own.x; f.y1 = own.y - 45; }
+      // charge up (thin), blast (huge), then fade away
+      const grow = u < 0.12 ? u / 0.12 : 1, fade = u > 0.8 ? (1 - u) / 0.2 : 1;
+      const W = (u < 0.12 ? 4 : 30 + 5 * Math.sin(f.t * 30)) * fade;
+      const dx = f.x2 - f.x1, dy = f.y2 - f.y1, len = Math.hypot(dx, dy) || 1, ang = Math.atan2(dy, dx);
+      c.save(); c.globalCompositeOperation = 'lighter'; c.translate(f.x1, f.y1); c.rotate(ang);
+      const L = len * grow;
+      for (const [w, a, rgb] of [[W * 2.2, 0.16, '255,190,70'], [W, 0.4, '255,210,100'], [W * 0.45, 0.6, '255,235,160']]) {
+        const g = c.createLinearGradient(0, -w / 2, 0, w / 2);
+        g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.5, `rgba(${rgb},${a * fade})`); g.addColorStop(1, `rgba(${rgb},0)`);
+        c.fillStyle = g; c.fillRect(0, -w / 2, L, w);
+      }
+      c.fillStyle = `rgba(255,255,255,${0.95 * fade})`; c.fillRect(0, -Math.max(1.5, W * 0.12), L, Math.max(3, W * 0.24));
+      // sparks of light racing down the beam
+      c.fillStyle = `rgba(255,255,230,${fade})`;
+      for (let k = 0; k < 10; k++) { const q = (f.t * 2.2 + k / 10) % 1; if (q * len > L) continue; c.beginPath(); c.arc(q * len, Math.sin(k * 5.1 + f.t * 12) * W * 0.4, 2.2, 0, TAU); c.fill(); }
+      // rings travelling along it
+      c.strokeStyle = `rgba(255,235,170,${0.7 * fade})`; c.lineWidth = 2;
+      for (let k = 0; k < 3; k++) { const q = (f.t * 1.3 + k / 3) % 1; if (q * len > L) continue; c.beginPath(); c.ellipse(q * len, 0, 4, W * 0.75, 0, 0, TAU); c.stroke(); }
+      c.restore();
+      if (grow >= 1) { // blazing impact on the tower
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const R = (34 + 6 * Math.sin(f.t * 25)) * fade;
+        const ig = c.createRadialGradient(f.x2, f.y2, 1, f.x2, f.y2, R); ig.addColorStop(0, `rgba(255,255,240,${0.9 * fade})`); ig.addColorStop(0.35, `rgba(255,200,90,${0.6 * fade})`); ig.addColorStop(1, 'rgba(255,200,90,0)');
+        c.fillStyle = ig; c.beginPath(); c.arc(f.x2, f.y2, R, 0, TAU); c.fill();
+        c.restore();
+        if (Math.random() < 0.5) effects.push({ k: 'mote', x: f.x2, y: f.y2, vx: (Math.random() - 0.5) * 160, vy: -40 - Math.random() * 120, t: 0, T: 0.6, r: 2.5, hex: '#fff3c0', glow: true });
+      }
+    } else if (f.k === 'flare') { // bright flash where a beam starts
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const g = c.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * (1 + u));
+      g.addColorStop(0, `rgba(255,255,255,${1 - u})`); g.addColorStop(0.4, `rgba(${f.col},${0.7 * (1 - u)})`); g.addColorStop(1, `rgba(${f.col},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(f.x, f.y, f.r * (1 + u), 0, TAU); c.fill();
+      c.restore();
+    } else if (f.k === 'shock') { // thick glowing shockwave ring
+      const r = f.r * (0.15 + 0.85 * Math.sqrt(u)), a = 1 - u;
+      c.save(); c.globalCompositeOperation = 'lighter'; c.translate(f.x, f.y); c.scale(1, 0.62);
+      const g = c.createRadialGradient(0, 0, r * 0.75, 0, 0, r);
+      g.addColorStop(0, `rgba(${f.col},0)`); g.addColorStop(0.85, `rgba(${f.col},${0.55 * a})`); g.addColorStop(1, `rgba(${f.col},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+      c.restore();
+    } else if (f.k === 'runes') { // glowing magic circle on the ground
+      const a = Math.sin(u * Math.PI);
+      c.save(); c.translate(f.x, f.y); c.scale(1, 0.45); c.rotate(f.t * 1.5);
+      c.strokeStyle = `rgba(${f.col},${0.9 * a})`; c.lineWidth = 2.5; c.shadowColor = `rgb(${f.col})`; c.shadowBlur = 10;
+      c.beginPath(); c.arc(0, 0, f.r, 0, TAU); c.stroke(); c.beginPath(); c.arc(0, 0, f.r * 0.78, 0, TAU); c.stroke();
+      for (const off of [0, Math.PI / 3]) { c.beginPath(); for (let k = 0; k < 3; k++) { const ang = off + (k / 3) * TAU; c.lineTo(Math.cos(ang) * f.r * 0.78, Math.sin(ang) * f.r * 0.78); } c.closePath(); c.stroke(); }
+      c.shadowBlur = 0; c.restore();
+    } else if (f.k === 'feather') {
+      f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.97; f.vy = f.vy * 0.97 + 40 * dt; f.rot += dt * 3;
+      c.save(); c.translate(f.x, f.y); c.rotate(f.rot + Math.sin(f.t * 6) * 0.5); c.globalAlpha = 1 - u;
+      c.fillStyle = '#fffbe8'; c.strokeStyle = '#d9a83a'; c.lineWidth = 0.8;
+      c.beginPath(); c.ellipse(0, 0, 7, 2.6, 0, 0, TAU); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-7, 0); c.lineTo(7, 0); c.stroke();
+      c.restore(); c.globalAlpha = 1;
+    } else if (f.k === 'portal') { // swirling void vortex
+      const open = u < 0.2 ? u / 0.2 : u > 0.75 ? (1 - u) / 0.25 : 1, R = 46 * open;
+      c.save(); c.translate(f.x, f.y); c.scale(1, 0.6);
+      const g = c.createRadialGradient(0, 0, 2, 0, 0, R * 1.3); g.addColorStop(0, 'rgba(0,0,0,0.95)'); g.addColorStop(0.55, 'rgba(60,10,110,0.85)'); g.addColorStop(1, 'rgba(150,70,255,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, R * 1.3, 0, TAU); c.fill();
+      c.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 5; k++) {
+        c.save(); c.rotate(-f.t * 5 + k * (TAU / 5));
+        c.strokeStyle = `rgba(190,120,255,${0.8 * open})`; c.lineWidth = 3;
+        c.beginPath(); for (let q = 0; q <= 1; q += 0.1) { const rr = R * (0.15 + q), ang = q * 3; c.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr); } c.stroke();
+        c.restore();
+      }
+      c.restore();
+    } else if (f.k === 'blacksun') { // the eclipse: a black sun with a burning violet corona
+      const a = Math.sin(u * Math.PI), R = 34 + 10 * a;
+      c.save(); c.translate(f.x, f.y);
+      c.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 16; k++) {
+        c.save(); c.rotate(f.t * 0.8 + k * (TAU / 16));
+        const len = R + 18 + 14 * Math.sin(f.t * 9 + k * 1.7);
+        const g = c.createLinearGradient(R * 0.8, 0, len, 0); g.addColorStop(0, `rgba(190,110,255,${0.85 * a})`); g.addColorStop(1, 'rgba(190,110,255,0)');
+        c.fillStyle = g; c.beginPath(); c.moveTo(R * 0.8, -5); c.lineTo(len, 0); c.lineTo(R * 0.8, 5); c.closePath(); c.fill();
+        c.restore();
+      }
+      const cg = c.createRadialGradient(0, 0, R * 0.8, 0, 0, R * 1.5); cg.addColorStop(0, `rgba(220,160,255,${0.9 * a})`); cg.addColorStop(1, 'rgba(150,70,255,0)');
+      c.fillStyle = cg; c.beginPath(); c.arc(0, 0, R * 1.5, 0, TAU); c.fill();
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = `rgba(5,0,12,${a})`; c.beginPath(); c.arc(0, 0, R, 0, TAU); c.fill();
       c.restore();
     } else if (f.k === 'flashw') {
       c.fillStyle = `rgba(255,250,230,${0.7 * (1 - u)})`; c.fillRect(0, 0, WW, WH);
@@ -3109,6 +3304,8 @@ function render(dt) {
       ctx.restore();
     } else if (p.kind === 'lightorb') {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const og = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 18); og.addColorStop(0, 'rgba(255,250,220,0.9)'); og.addColorStop(1, 'rgba(255,220,130,0)');
+      ctx.fillStyle = og; ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, TAU); ctx.fill();
       for (let k = 0; k < 4; k++) { const tx = p.x - Math.cos(p.a || 0) * k * 5, ty = p.y - Math.sin(p.a || 0) * k * 5; ctx.fillStyle = `rgba(255,${235 - k * 20},${160 - k * 30},${0.8 - k * 0.18})`; ctx.beginPath(); ctx.arc(tx, ty, 7 - k * 1.3, 0, TAU); ctx.fill(); }
       ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, TAU); ctx.fill();
       ctx.restore();

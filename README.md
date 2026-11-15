@@ -43,6 +43,15 @@ Grid tower defense: hold off 30 waves, then keep going in endless mode.
 - Endless mode (after the final wave) gets steadily harder every wave: a bit more health, more enemies and slightly faster each time, 15 seconds between waves, and extra Shadow Dragons from 10 waves in.
 - **Online co-op** for up to 4 players. Everyone earns gold from every kill and builds their own towers. You can give gold to teammates and ping the map with F. Enemies get tougher as more players join.
 
+### Track Forge (`track-forge/`)
+
+A low-poly time-trial racer with a track editor. Tracks float above a sea of clouds; fall off and you jump back to your last checkpoint.
+
+- **Five official tracks** (Easy to Hard) with author, gold, silver and bronze medal times. Drive through every checkpoint, then cross the finish.
+- **Split times** at each checkpoint compared with your best run, and a **ghost car** of your best run to race against. Best times and ghosts are saved in the browser.
+- **Track Editor**: build tracks from 10 pieces (straight, turn, wide turn, ramp, jump, boost pad, checkpoint, start, finish and platform) on a grid, stack them at different heights, rotate and mirror them, undo, and test drive at any time. Save tracks in the browser, or share them as a code that a friend can paste in to play or remix.
+- Controls: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows to drive, <kbd>Space</kbd> to drift, <kbd>R</kbd> to go back to the last checkpoint, <kbd>Enter</kbd> to restart, <kbd>C</kbd> to switch camera. On touch screens, on-screen buttons appear.
+
 ### Online play
 
 Online modes use room codes. One player hosts and gets a 5-letter code, and friends join with it (or with the invite link). Players connect directly through WebRTC using [PeerJS](https://peerjs.com) (MIT, included in `shared/peerjs.min.js`). The free PeerJS server only introduces players to each other, so there is nothing to set up or host.
